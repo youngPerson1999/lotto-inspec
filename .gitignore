@@ -1,0 +1,24 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# IDE / editor folders
+.idea/
+.vscode/
+
+# Mac / OS metadata
+.DS_Store
+
+# Local data/cache
+data/lotto_draws.json
+
+# Logs
+*.log
