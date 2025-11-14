@@ -9,7 +9,7 @@ from typing import Dict, List, Sequence
 
 from scipy import stats
 
-from lottery import LottoDraw, load_stored_draws
+from app.services.lotto import LottoDraw, load_stored_draws
 
 TOTAL_BALLS = 45
 BALLS_PER_DRAW = 6

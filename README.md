@@ -1,6 +1,7 @@
 # Lotto Insec Backend
 
-FastAPI server that downloads Lotto draw data from DhLottery, exposes health/lotto endpoints, and enables statistical analysis.
+FastAPI server that downloads Lotto draw data from DhLottery, exposes health/lotto endpoints, and enables statistical analysis.  
+The repo now ships with a production-ready layout for Docker/Koyeb deployments.
 
 ## Getting Started
 
@@ -28,12 +29,55 @@ FastAPI server that downloads Lotto draw data from DhLottery, exposes health/lot
    - `GET /lotto/{draw_no}` fetches a specific 회차 (e.g., `GET /lotto/1197`).  
    - `POST /lotto/sync` downloads any missing draws (e.g., 1001~1197) and appends them to `data/lotto_draws.json`, returning a summary of what was added.
 
+## Running with Docker
+
+Build and run the container locally:
+
+```bash
+docker build -t lotto-insec .
+docker run --rm -p 8000:8000 \
+  -e PORT=8000 \
+  -e LOTTO_DATA_DIR=/tmp/lotto-data \
+  lotto-insec
+```
+
+The API will be available at http://localhost:8000.  
+Set `LOTTO_DATA_DIR` to a mounted volume if you need the synchronized draws to persist across container restarts.
+
+## Deploying to Koyeb
+
+1. Install the [Koyeb CLI](https://www.koyeb.com/docs/cli/installation) and authenticate.
+2. Review `koyeb.yaml` and optionally tweak the region, autoscaling, or env vars.
+3. Deploy:
+   ```bash
+   koyeb service deploy \
+     --app lotto-insec \
+     --name lotto-api \
+     --manifest ./koyeb.yaml
+   ```
+   Koyeb will build the Docker image using the provided `Dockerfile` and expose the service through its HTTPS edge.
+4. The default manifest stores synced results in `/var/cache/lotto`. Attach a persistent volume if you need durable history between deployments.
+
+## Configuration
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `LOTTO_DATA_DIR` | `data` | Directory where synced draws are stored. |
+| `LOTTO_RESULT_URL` | DhLottery `byWin` page | Override target HTML page for scraping the latest draw number. |
+| `LOTTO_JSON_URL` | DhLottery JSON endpoint | Override API base for individual draw metadata. |
+| `LOTTO_USER_AGENT` | `lotto-insec/1.0 (...)` | Custom User-Agent header for outbound requests. |
+| `LOTTO_REQUEST_TIMEOUT` | `10` seconds | Default HTTP timeout used by the crawler. |
+| `PORT` | `8000` | Honored by the Dockerfile/Procfile for platforms that inject a port (Koyeb, Render, etc.). |
+
 ## Project Layout
 
-- `crawler.py` – shared crawling helpers.
-- `app/main.py` – FastAPI application exposing the `/lotto/latest`, `/lotto/{draw_no}`, `/lotto/sync`, and health check endpoints.
-- `app/schemas.py` – shared Pydantic models used by the FastAPI routes.
-- `lottery.py` – DhLottery-specific helpers that discover the latest draw metadata, fetch any specific draw, synchronize local storage, and load persisted data for analysis.
-- `analysis.py` – statistical utilities (chi-square test, runs test, gap histogram) built on top of the locally stored draws for investigating anomalies.
-- `data/lotto_draws.json` – populated on demand; stores draw history retrieved via the sync endpoint.
+- `app/api/routes.py` – FastAPI router grouping the HTTP endpoints.
+- `app/core/config.py` – environment-driven settings (paths, endpoints, user agent).
+- `app/core/http_client.py` – shared HTTP helper built on requests.
+- `app/services/lotto.py` – DhLottery-specific helpers that crawl/sync data.
+- `app/main.py` – FastAPI application, includes routers and metadata.
+- `app/schemas.py` – shared Pydantic models for responses.
+- `analysis.py` – statistical utilities (chi-square test, runs test, gap histogram) built on top of the locally stored draws.
+- `data/` – populated on demand; stores draw history retrieved via the sync endpoint.
+- `Dockerfile`, `.dockerignore`, `Procfile`, `koyeb.yaml` – deployment assets for container platforms/Koyeb.
 - `requirements.txt` – runtime dependencies.
