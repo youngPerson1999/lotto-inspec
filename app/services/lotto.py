@@ -9,12 +9,8 @@ from typing import Dict, List
 
 from bs4 import BeautifulSoup
 
-from crawler import fetch_text, fetch_url
-
-LOTTO_RESULT_URL = "https://dhlottery.co.kr/gameResult.do"
-LOTTO_JSON_URL = "https://www.dhlottery.co.kr/common.do"
-DATA_DIR = Path("data")
-DRAW_FILE = DATA_DIR / "lotto_draws.json"
+from app.core.config import get_settings
+from app.core.http_client import fetch_text, fetch_url
 
 
 @dataclass
@@ -35,6 +31,10 @@ class LottoSyncResult:
     latest: int
     inserted: int
     draws: List[LottoDraw]
+
+
+def _draw_file() -> Path:
+    return get_settings().draw_storage_path
 
 
 def _extract_latest_draw_number(html: str) -> int:
@@ -62,7 +62,9 @@ def _extract_latest_draw_number(html: str) -> int:
 
 
 def _ensure_data_dir() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    data_dir = get_settings().data_dir
+    if not data_dir.exists():
+        data_dir.mkdir(parents=True, exist_ok=True)
 
 
 def _draw_to_dict(draw: LottoDraw) -> Dict[str, object]:
@@ -86,10 +88,11 @@ def _dict_to_draw(payload: Dict[str, object]) -> LottoDraw:
 def load_stored_draws() -> List[LottoDraw]:
     """Load locally cached draws (if any)."""
 
-    if not DRAW_FILE.exists():
+    draw_path = _draw_file()
+    if not draw_path.exists():
         return []
 
-    data = json.loads(DRAW_FILE.read_text())
+    data = json.loads(draw_path.read_text())
     draws = [_dict_to_draw(item) for item in data]
     return sorted(draws, key=lambda draw: draw.draw_no)
 
@@ -106,16 +109,17 @@ def save_draws(draws: List[LottoDraw]) -> None:
         dedup[draw.draw_no] = draw
 
     serialized = [_draw_to_dict(draw) for draw in dedup.values()]
-    tmp_path = DRAW_FILE.with_suffix(".tmp")
+    draw_path = _draw_file()
+    tmp_path = draw_path.with_suffix(".tmp")
     tmp_path.write_text(json.dumps(serialized, indent=2))
-    tmp_path.replace(DRAW_FILE)
+    tmp_path.replace(draw_path)
 
 
 def fetch_draw_info(draw_no: int) -> LottoDraw:
     """Fetch metadata for a specific Lotto draw via the DhLottery JSON endpoint."""
 
     response = fetch_url(
-        LOTTO_JSON_URL,
+        get_settings().lotto_json_url,
         params={"method": "getLottoNumber", "drwNo": draw_no},
     )
     payload = response.json()
@@ -139,7 +143,7 @@ def fetch_latest_draw_info() -> LottoDraw:
     """Fetch metadata for the latest Lotto draw available on DhLottery."""
 
     page_html = fetch_text(
-        LOTTO_RESULT_URL,
+        get_settings().lotto_result_url,
         params={"method": "byWin"},
     )
     latest_draw_no = _extract_latest_draw_number(page_html)
@@ -177,3 +181,4 @@ def sync_draw_storage() -> LottoSyncResult:
         inserted=len(missing_draws),
         draws=missing_draws,
     )
+

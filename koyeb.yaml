@@ -1,0 +1,23 @@
+name: lotto-insec
+services:
+  - name: api
+    type: web
+    regions:
+      - fra
+    instance_type: nano
+    auto_scaling:
+      metric: cpu
+      target: 60
+      min: 1
+      max: 1
+    routes:
+      - path: /
+    ports:
+      - port: 8000
+        protocol: http
+    dockerfile: ./Dockerfile
+    env:
+      - key: PORT
+        value: "8000"
+      - key: LOTTO_DATA_DIR
+        value: /var/cache/lotto
