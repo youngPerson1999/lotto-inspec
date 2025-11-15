@@ -252,3 +252,66 @@ def sync_draw_storage() -> LottoSyncResult:
         inserted=len(missing_draws),
         draws=missing_draws,
     )
+
+
+def _validate_ticket_numbers(numbers: List[int]) -> List[int]:
+    if len(numbers) != 6:
+        raise ValueError("검증하려면 6개의 번호가 필요합니다.")
+
+    normalized = [int(num) for num in numbers]
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("번호는 중복될 수 없습니다.")
+
+    invalid = [num for num in normalized if num < 1 or num > 45]
+    if invalid:
+        raise ValueError("번호는 1~45 범위 내여야 합니다.")
+
+    return normalized
+
+
+def _determine_rank(match_count: int, bonus_matched: bool) -> int | None:
+    if match_count == 6:
+        return 1
+    if match_count == 5 and bonus_matched:
+        return 2
+    if match_count == 5:
+        return 3
+    if match_count == 4:
+        return 4
+    if match_count == 3:
+        return 5
+    return None
+
+
+def evaluate_ticket(draw: LottoDraw, numbers: List[int]) -> Dict[str, object]:
+    """주어진 회차 결과와 번호 조합을 비교해 당첨 여부를 계산."""
+
+    ticket = _validate_ticket_numbers(numbers)
+    ticket_set = set(ticket)
+    winning_set = set(draw.numbers)
+    matched_numbers = sorted(winning_set.intersection(ticket_set))
+    match_count = len(matched_numbers)
+    bonus_matched = draw.bonus in ticket_set
+    rank = _determine_rank(match_count, bonus_matched)
+    is_winner = rank is not None
+
+    if is_winner:
+        if rank == 2:
+            message = f"{match_count}개 일치 + 보너스 번호로 2등 당첨입니다!"
+        else:
+            message = f"{match_count}개 일치로 {rank}등 당첨입니다!"
+    else:
+        message = f"{match_count}개 일치로 낙첨입니다."
+
+    return {
+        "draw_no": draw.draw_no,
+        "numbers": sorted(ticket),
+        "winning_numbers": sorted(draw.numbers),
+        "bonus": draw.bonus,
+        "matched_numbers": matched_numbers,
+        "match_count": match_count,
+        "bonus_matched": bonus_matched,
+        "rank": rank,
+        "is_winner": is_winner,
+        "message": message,
+    }

@@ -47,11 +47,13 @@ def get_user_recommendation_history(
 
         responses.append(
             UserRecommendationResponse(
+                id=item["id"],
                 userId=item["userId"],
                 strategy=strategy,
                 numbers=item["numbers"],
                 draw_no=item.get("draw_no"),
                 created_at=item.get("created_at"),
+                evaluation=item.get("evaluation"),
             )
         )
     return responses

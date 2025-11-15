@@ -57,10 +57,13 @@ def postRecommendation(
     except RecommendationError as exc:
         raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
     return UserRecommendationResponse(
+        id=saved["id"],
         userId=saved["userId"],
         strategy=payload.strategy,
         numbers=saved["numbers"],
         draw_no=saved["draw_no"],
+        created_at=saved.get("created_at"),
+        evaluation=saved.get("evaluation"),
     )
 
 

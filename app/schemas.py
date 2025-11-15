@@ -35,6 +35,74 @@ class LottoSyncResponse(BaseModel):
     )
 
 
+class LottoCheckRequest(BaseModel):
+    draw_no: int = Field(..., gt=0, description="검증할 회차 번호")
+    numbers: List[int] = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        description="검증할 번호 조합 (6개)",
+    )
+
+
+class LottoCheckResponse(BaseModel):
+    draw_no: int = Field(..., description="검증한 회차 번호")
+    numbers: List[int] = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        description="검증한 번호 (오름차순)",
+    )
+    winning_numbers: List[int] = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        description="당첨 번호 (오름차순)",
+    )
+    bonus: int = Field(..., description="보너스 번호")
+    matched_numbers: List[int] = Field(
+        ...,
+        description="일치한 번호 목록",
+    )
+    match_count: int = Field(
+        ...,
+        ge=0,
+        le=6,
+        description="일치한 번호 개수",
+    )
+    bonus_matched: bool = Field(..., description="보너스 번호 일치 여부")
+    rank: int | None = Field(
+        None,
+        description="당첨 등수 (낙첨 시 None)",
+    )
+    is_winner: bool = Field(..., description="당첨 여부")
+    message: str = Field(..., description="결과 메시지")
+
+
+class RecommendationEvaluationResult(BaseModel):
+    rank: int | None = Field(
+        None,
+        description="당첨 등수 (낙첨 시 None)",
+    )
+    match_count: int = Field(..., ge=0, le=6, description="일치 번호 개수")
+    matched_numbers: List[int] = Field(
+        ...,
+        description="일치한 번호 목록",
+    )
+    bonus_matched: bool = Field(..., description="보너스 번호 일치 여부")
+
+
+class RecommendationEvaluationRequest(BaseModel):
+    recommendation_id: str = Field(..., description="저장된 추천 고유 ID")
+    draw_no: int = Field(..., gt=0, description="검증할 회차 번호")
+    numbers: List[int] = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        description="검증할 번호 조합 (6개)",
+    )
+
+
 class ChiSquareAnalysisResponse(BaseModel):
     statistic: float = Field(..., description="카이제곱 통계량")
     p_value: float = Field(..., description="균등분포 가설의 p-value")
@@ -269,6 +337,7 @@ class UserRecommendationRequest(BaseModel):
 
 
 class UserRecommendationResponse(BaseModel):
+    id: str = Field(..., description="추천 고유 ID")
     userId: str = Field(..., description="추천을 저장한 사용자 ID")
     strategy: "RecommendationStrategy" = Field(..., description="사용한 추천 전략")
     numbers: List[int] = Field(
@@ -284,6 +353,10 @@ class UserRecommendationResponse(BaseModel):
     created_at: datetime | None = Field(
         None,
         description="추천을 저장한 시각 (UTC)",
+    )
+    evaluation: RecommendationEvaluationResult | None = Field(
+        None,
+        description="당첨 정보 (아직 검증하지 않았다면 None)",
     )
 
 

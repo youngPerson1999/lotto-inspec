@@ -8,13 +8,20 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from pymongo import ReturnDocument
 
+from bson import ObjectId
+from bson.errors import InvalidId
+from pymongo import ReturnDocument
+
 from analysis import calculate_number_frequencies
 from app.core.config import get_settings
 from app.core.db import get_mongo_client
 from app.services.lotto import (
     LottoDraw,
+    evaluate_ticket,
+    fetch_draw_info,
     fetch_latest_draw_info,
     get_latest_stored_draw,
+    get_stored_draw,
     load_stored_draws,
 )
 
@@ -256,7 +263,7 @@ def create_user_recommendation(user_id: str, strategy: str) -> Dict[str, object]
                 "draw_no": draw_no,
                 "updated_at": now,
             },
-            "$setOnInsert": {"created_at": now},
+            "$setOnInsert": {"created_at": now, "evaluation": None},
         },
         upsert=True,
         return_document=ReturnDocument.AFTER,
@@ -265,11 +272,13 @@ def create_user_recommendation(user_id: str, strategy: str) -> Dict[str, object]
         raise RecommendationError("추천 정보를 저장하지 못했습니다.")
 
     return {
+        "id": str(document["_id"]),
         "userId": document["user_id"],
         "strategy": document["strategy"],
         "numbers": document["numbers"],
         "draw_no": document.get("draw_no"),
         "created_at": document.get("created_at"),
+        "evaluation": document.get("evaluation"),
     }
 
 
@@ -284,14 +293,74 @@ def get_user_recommendations(user_id: str) -> List[Dict[str, object]]:
     for document in cursor:
         results.append(
             {
+                "id": str(document["_id"]),
                 "userId": document["user_id"],
                 "strategy": document["strategy"],
                 "numbers": document["numbers"],
                 "draw_no": document.get("draw_no"),
                 "created_at": document.get("created_at"),
+                "evaluation": document.get("evaluation"),
             }
         )
     return results
+
+
+def evaluate_user_recommendation(
+    user_id: str,
+    recommendation_id: str,
+    draw_no: int,
+    numbers: List[int],
+) -> Dict[str, object]:
+    if not user_id:
+        raise RecommendationError("userId가 비어 있습니다.")
+    if not recommendation_id:
+        raise RecommendationError("추천 ID가 필요합니다.")
+
+    collection = _user_recommendation_collection()
+    try:
+        object_id = ObjectId(recommendation_id)
+    except InvalidId as exc:
+        raise RecommendationError("유효하지 않은 추천 ID입니다.") from exc
+
+    document = collection.find_one({"_id": object_id, "user_id": user_id})
+    if not document:
+        raise RecommendationError("추천 정보를 찾을 수 없습니다.")
+
+    stored_numbers = sorted(int(num) for num in document.get("numbers", []))
+    provided_numbers = sorted(int(num) for num in numbers)
+    if stored_numbers != provided_numbers:
+        raise RecommendationError("요청 번호가 저장된 추천 번호와 일치하지 않습니다.")
+
+    stored_draw_no = document.get("draw_no")
+    if stored_draw_no != draw_no:
+        raise RecommendationError("요청 회차가 저장된 추천 회차와 일치하지 않습니다.")
+
+    settings = get_settings()
+    draw = None
+    if settings.use_mongo_storage:
+        draw = get_stored_draw(draw_no)
+    if draw is None:
+        draw = fetch_draw_info(draw_no)
+
+    result = evaluate_ticket(draw, stored_numbers)
+    evaluation_payload = {
+        "rank": result.get("rank"),
+        "match_count": result.get("match_count"),
+        "matched_numbers": result.get("matched_numbers"),
+        "bonus_matched": result.get("bonus_matched"),
+    }
+
+    collection.update_one(
+        {"_id": object_id},
+        {
+            "$set": {
+                "evaluation": evaluation_payload,
+                "evaluated_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+
+    return result
 
 
 __all__ = [
@@ -301,4 +370,5 @@ __all__ = [
     "STRATEGIES",
     "create_user_recommendation",
     "get_user_recommendations",
+    "evaluate_user_recommendation",
 ]
