@@ -1,8 +1,24 @@
 """FastAPI application entrypoint."""
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
+from app.core.config import get_settings
+
+tags_metadata = [
+    {
+        "name": "system",
+        "description": "Infra endpoints for health checks and diagnostics.",
+    },
+    {
+        "name": "lotto",
+        "description": (
+            "Operations for retrieving Lotto draw data, synchronizing storage, "
+            "and inspecting historical results."
+        ),
+    },
+]
 
 app = FastAPI(
     title="Lotto Insec API",
@@ -11,6 +27,16 @@ app = FastAPI(
         "exposes them via REST endpoints for inspection and analysis."
     ),
     version="0.2.0",
+    openapi_tags=tags_metadata,
 )
 
 app.include_router(api_router)
+
+settings = get_settings()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

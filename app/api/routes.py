@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Dict
-
 from fastapi import APIRouter, HTTPException, Path
 
-from app.schemas import LottoDrawResponse, LottoSyncResponse
+from analysis import summarize_draws
+from app.schemas import (
+    HealthResponse,
+    LottoAnalysisResponse,
+    LottoDrawResponse,
+    LottoSyncResponse,
+)
 from app.services.lotto import (
     LottoDraw,
     LottoSyncResult,
@@ -18,15 +22,19 @@ from app.services.lotto import (
 router = APIRouter()
 
 
-@router.get("/health", tags=["system"])
-def health() -> Dict[str, str]:
+@router.get("/health", response_model=HealthResponse, tags=["system"])
+def getHealth() -> HealthResponse:
     """Lightweight liveness probe endpoint."""
 
-    return {"status": "ok"}
+    return HealthResponse(status="ok")
 
 
-@router.get("/lotto/latest", response_model=LottoDrawResponse, tags=["lotto"])
-def latest_draw() -> LottoDrawResponse:
+@router.get(
+    "/lotto/latest",
+    response_model=LottoDrawResponse,
+    tags=["lotto"],
+)
+def getLottoLatest() -> LottoDrawResponse:
     """Return the most recent Lotto draw as published by DhLottery."""
 
     try:
@@ -43,12 +51,49 @@ def latest_draw() -> LottoDrawResponse:
 
 
 @router.get(
+    "/lotto/analysis",
+    response_model=LottoAnalysisResponse,
+    tags=["lotto"],
+    summary="저장된 회차 기반 통계 분석 결과 조회",
+)
+def getLottoAnalysis() -> LottoAnalysisResponse:
+    """Return aggregate statistical insights about stored Lotto draws."""
+
+    try:
+        summary = summarize_draws()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
+
+    chi_square = summary["chi_square"]
+    runs = summary["runs_test"]
+
+    return LottoAnalysisResponse(
+        total_draws=summary["total_draws"],
+        chi_square={
+            "statistic": chi_square.statistic,
+            "p_value": chi_square.p_value,
+            "observed": chi_square.observed,
+            "expected": chi_square.expected,
+        },
+        runs_test={
+            "runs": runs.runs,
+            "expected_runs": runs.expected_runs,
+            "z_score": runs.z_score,
+            "p_value": runs.p_value,
+            "total_observations": runs.total_observations,
+        },
+        gap_histogram=summary["gap_histogram"],
+        frequency=summary["frequency"],
+    )
+
+
+@router.get(
     "/lotto/{draw_no}",
     response_model=LottoDrawResponse,
     tags=["lotto"],
     summary="Fetch a specific Lotto draw by number",
 )
-def draw_by_number(
+def getLottoDrawByNumber(
     draw_no: int = Path(..., gt=0, description="Target draw number, e.g., 1197."),
 ) -> LottoDrawResponse:
     """Return Lotto result data for the provided drawing number."""
@@ -72,7 +117,7 @@ def draw_by_number(
     tags=["lotto"],
     summary="Synchronize local draw storage up to the latest 회차",
 )
-def sync_lotto_storage() -> LottoSyncResponse:
+def postLottoSync() -> LottoSyncResponse:
     """Trigger a synchronization run to download missing draw data."""
 
     try:
@@ -94,4 +139,3 @@ def sync_lotto_storage() -> LottoSyncResponse:
             for draw in result.draws
         ],
     )
-
