@@ -27,15 +27,7 @@ def getLottoLatest() -> LottoDrawResponse:
     """Return the most recent Lotto draw as published by DhLottery."""
 
     try:
-        settings = get_settings()
-        if settings.use_mongo_storage:
-            cached = get_latest_stored_draw()
-            if cached:
-                draw = cached
-            else:
-                draw = fetch_latest_draw_info()
-        else:
-            draw = fetch_latest_draw_info()
+        draw = fetch_latest_draw_info()
     except ValueError as exc:
         raise HTTPException(status_code=502, detail={"message": str(exc)}) from exc
 
