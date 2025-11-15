@@ -260,3 +260,37 @@ class RecommendationBatchResponse(BaseModel):
     recommendations: List[RecommendationResponse] = Field(
         ..., description="여러 전략에 대한 추천 결과 목록"
     )
+
+
+class UserProfileResponse(BaseModel):
+    id: int | None = Field(None, description="내부 사용자 고유 번호")
+    userId: str = Field(..., description="로그인 ID")
+    name: str = Field(..., description="사용자 이름")
+
+
+class UserRegisterRequest(BaseModel):
+    userId: str = Field(..., min_length=3, max_length=50, description="로그인 ID")
+    password: str = Field(..., min_length=6, max_length=128, description="비밀번호")
+    name: str = Field(..., min_length=1, max_length=50, description="표시 이름")
+
+
+class UserLoginRequest(BaseModel):
+    userId: str = Field(..., description="로그인 ID")
+    password: str = Field(..., description="비밀번호")
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(..., description="발급 받은 리프레시 토큰")
+
+
+class TokenPairResponse(BaseModel):
+    access_token: str = Field(..., description="Access Token (JWT)")
+    refresh_token: str = Field(..., description="Refresh Token (JWT)")
+    token_type: str = Field("Bearer", description="토큰 타입 (기본 Bearer)")
+    expires_in: int = Field(..., description="Access Token 만료까지 남은 초")
+    refresh_expires_in: int = Field(..., description="Refresh Token 만료까지 남은 초")
+    user: UserProfileResponse
+
+
+class MessageResponse(BaseModel):
+    message: str = Field(..., description="처리 결과 메시지")

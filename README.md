@@ -35,6 +35,7 @@ The repo now ships with a production-ready layout for Docker/Koyeb deployments.
    - `POST /analysis/distribution` compares 합계/간격 분포 전체가 시뮬레이션한 이상적 분포와 얼마나 차이나는지를 χ² + KS 통계로 보여줍니다 (계산 비용 때문에 POST 전용).
    - `GET /analysis/randomness` runs a lightweight NIST-style randomness suite on 비트열 인코딩(번호 존재 여부/이진 표현 등) 후 각 검정의 p-value를 제공합니다. (POST로 재계산 가능)
    - `GET /recommendations?strategy=frequency_hot` 등으로 랜덤/분석 기반 추천 조합을 받을 수 있습니다 (`random`, `frequency_hot`, `frequency_cold`, `balanced_parity` 지원).
+   - `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`로 JWT 기반 로그인/토큰 갱신을 사용할 수 있습니다. (MongoDB 필수)
 
 ## Running with Docker
 
@@ -79,6 +80,12 @@ Set `LOTTO_DATA_DIR` (inside `.env`) to a mounted volume if you need the synchro
 | `MONGO_DB_NAME`         | `lotto-insec`           | Database name for storing draws.                                                           |
 | `MONGO_COLLECTION_NAME` | `lotto-draws`           | Collection name for storing draws.                                                         |
 | `MONGO_ANALYSIS_COLLECTION_NAME` | `analysis_snapshots` | Collection name that stores cached 분석 결과 스냅샷. |
+| `MONGO_USER_COLLECTION_NAME` | `users` | Collection used for auth 사용자 문서. |
+| `MONGO_RECOMMENDATION_COLLECTION_NAME` | `recommendation_snapshots` | Recommendation 캐시를 저장할 Mongo 컬렉션. |
+| `JWT_SECRET_KEY` | `change-me` | JWT 서명 비밀 키 (프로덕션에서는 안전한 값으로 변경). |
+| `JWT_ALGORITHM` | `HS256` | JWT 서명 알고리즘. |
+| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access Token 만료 시간(분). |
+| `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | `14` | Refresh Token 만료 시간(일). |
 | `PORT`                  | `8000`                  | Honored by the Dockerfile/Procfile for platforms that inject a port (Koyeb, Render, etc.). |
 
 ### Using MongoDB for draw storage

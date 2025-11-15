@@ -41,7 +41,22 @@ class Settings:
         "MONGO_ANALYSIS_COLLECTION_NAME",
         "analysis-snapshots",
     )
-
+    mongo_user_collection_name: str = os.getenv(
+        "MONGO_USER_COLLECTION_NAME",
+        "users",
+    )
+    mongo_recommendation_collection_name: str = os.getenv(
+        "MONGO_RECOMMENDATION_COLLECTION_NAME",
+        "recommendation_snapshots",
+    )
+    jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "change-me")
+    jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
+    jwt_access_token_exp_minutes: int = int(
+        os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60")
+    )
+    jwt_refresh_token_exp_days: int = int(
+        os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "14")
+    )
     @property
     def draw_storage_path(self) -> Path:
         return self.data_dir / "lotto_draws.json"

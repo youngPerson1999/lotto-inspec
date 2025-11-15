@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.schemas import (
     RecommendationBatchResponse,
     RecommendationResponse,
     RecommendationStrategy,
 )
+from app.services.auth import require_access_token
 from app.services.recommendation import (
     RecommendationError,
     get_recommendation,
     get_all_recommendations,
 )
 
-router = APIRouter(prefix="/recommendations", tags=["recommendations"])
+router = APIRouter(
+    prefix="/recommendations",
+    tags=["recommendations"],
+    dependencies=[Depends(require_access_token)],
+)
 
 
 @router.get(

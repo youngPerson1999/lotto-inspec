@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from analysis import (
     dependency_summary,
@@ -31,8 +31,13 @@ from app.services.analysis_storage import (
     get_latest_analysis_snapshot,
     save_analysis_snapshot,
 )
+from app.services.auth import require_access_token
 
-router = APIRouter(prefix="/analysis", tags=["analysis"])
+router = APIRouter(
+    prefix="/analysis",
+    tags=["analysis"],
+    dependencies=[Depends(require_access_token)],
+)
 
 
 def _analysis_key(base: str, **params: Any) -> str:

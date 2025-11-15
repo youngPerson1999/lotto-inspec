@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 
 from app.core.config import get_settings
 from app.schemas import LottoDrawResponse, LottoSyncResponse
+from app.services.auth import require_access_token
 from app.services.lotto import (
     LottoDraw,
     LottoSyncResult,
@@ -16,7 +17,11 @@ from app.services.lotto import (
     sync_draw_storage,
 )
 
-router = APIRouter(prefix="/lotto", tags=["lotto"])
+router = APIRouter(
+    prefix="/lotto",
+    tags=["lotto"],
+    dependencies=[Depends(require_access_token)],
+)
 
 
 @router.get(
