@@ -1,5 +1,6 @@
 """Pydantic schemas shared by the FastAPI endpoints."""
 
+from datetime import datetime
 from enum import Enum
 from typing import Dict, List
 
@@ -259,6 +260,30 @@ class RecommendationStrategy(str, Enum):
 class RecommendationBatchResponse(BaseModel):
     recommendations: List[RecommendationResponse] = Field(
         ..., description="여러 전략에 대한 추천 결과 목록"
+    )
+
+
+class UserRecommendationRequest(BaseModel):
+    userId: str = Field(..., description="추천을 요청한 사용자 ID")
+    strategy: "RecommendationStrategy" = Field(..., description="사용할 추천 전략")
+
+
+class UserRecommendationResponse(BaseModel):
+    userId: str = Field(..., description="추천을 저장한 사용자 ID")
+    strategy: "RecommendationStrategy" = Field(..., description="사용한 추천 전략")
+    numbers: List[int] = Field(
+        ...,
+        description="저장된 추천 번호 6개",
+        min_length=6,
+        max_length=6,
+    )
+    draw_no: int | None = Field(
+        None,
+        description="추천이 기준한 회차 번호",
+    )
+    created_at: datetime | None = Field(
+        None,
+        description="추천을 저장한 시각 (UTC)",
     )
 
 

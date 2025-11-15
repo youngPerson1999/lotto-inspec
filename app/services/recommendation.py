@@ -6,11 +6,14 @@ from datetime import datetime, timezone
 from secrets import SystemRandom
 from typing import Callable, Dict, List, Optional, Tuple
 
+from pymongo import ReturnDocument
+
 from analysis import calculate_number_frequencies
 from app.core.config import get_settings
 from app.core.db import get_mongo_client
 from app.services.lotto import (
     LottoDraw,
+    fetch_latest_draw_info,
     get_latest_stored_draw,
     load_stored_draws,
 )
@@ -32,6 +35,13 @@ def _ensure_draws() -> Tuple[List[LottoDraw], int]:
 def _latest_draw_no() -> Optional[int]:
     latest = get_latest_stored_draw()
     return latest.draw_no if latest else None
+
+
+def _latest_remote_draw_no() -> Optional[int]:
+    try:
+        return fetch_latest_draw_info().draw_no
+    except ValueError:
+        return None
 
 
 def _frequency_table(draws: List[LottoDraw]) -> Dict[int, int]:
@@ -120,6 +130,22 @@ def _recommendation_collection():
     return collection
 
 
+def _user_recommendation_collection():
+    settings = get_settings()
+    if not settings.use_mongo_storage:
+        raise RecommendationError("MongoDB 백엔드에서만 사용자 추천 저장이 가능합니다.")
+
+    client = get_mongo_client()
+    collection = client[settings.mongo_db_name][
+        settings.mongo_user_recommendation_collection_name
+    ]
+    collection.create_index(
+        [("user_id", 1), ("draw_no", 1), ("strategy", 1)],
+        unique=True,
+    )
+    return collection
+
+
 def _cache_lookup(strategy: str, draw_no: int | None) -> Optional[Dict[str, object]]:
     collection = _recommendation_collection()
     if collection is None:
@@ -146,6 +172,29 @@ def _cache_store(strategy: str, draw_no: int | None, result: Dict[str, object]) 
     )
 
 
+def _cache_lookup_batch(draw_no: int | None) -> Optional[List[Dict[str, object]]]:
+    collection = _recommendation_collection()
+    if collection is None or draw_no is None:
+        return None
+
+    documents = list(collection.find({"draw_no": draw_no}))
+    if not documents:
+        return None
+
+    strategy_order = {name: index for index, name in enumerate(sorted(STRATEGIES))}
+
+    def _key(document: Dict[str, object]) -> tuple[int, str]:
+        result = document.get("result", {})
+        strategy = result.get("strategy") or document.get("strategy") or ""
+        return strategy_order.get(strategy, len(strategy_order)), strategy
+
+    return [
+        document["result"]
+        for document in sorted(documents, key=_key)
+        if document.get("result")
+    ]
+
+
 def _run_strategy(strategy: str, draw_no: int | None) -> Dict[str, object]:
     handler = STRATEGIES.get(strategy)
     if not handler:
@@ -168,6 +217,12 @@ def get_recommendation(strategy: str) -> Dict[str, object]:
 
 
 def get_all_recommendations() -> List[Dict[str, object]]:
+    latest_remote_draw_no = _latest_remote_draw_no()
+    if latest_remote_draw_no is not None:
+        cached_batch = _cache_lookup_batch(latest_remote_draw_no)
+        if cached_batch:
+            return cached_batch
+
     draw_no = _latest_draw_no()
     results: List[Dict[str, object]] = []
     for strategy in sorted(STRATEGIES):
@@ -181,9 +236,69 @@ def get_all_recommendations() -> List[Dict[str, object]]:
     return results
 
 
+def create_user_recommendation(user_id: str, strategy: str) -> Dict[str, object]:
+    if not user_id:
+        raise RecommendationError("userId가 비어 있습니다.")
+
+    recommendation = get_recommendation(strategy)
+    numbers = recommendation["numbers"]
+    draw_no = recommendation.get("draw_no")
+
+    collection = _user_recommendation_collection()
+    now = datetime.now(timezone.utc)
+    document = collection.find_one_and_update(
+        {"user_id": user_id, "draw_no": draw_no, "strategy": strategy},
+        {
+            "$set": {
+                "user_id": user_id,
+                "strategy": strategy,
+                "numbers": numbers,
+                "draw_no": draw_no,
+                "updated_at": now,
+            },
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    if not document:
+        raise RecommendationError("추천 정보를 저장하지 못했습니다.")
+
+    return {
+        "userId": document["user_id"],
+        "strategy": document["strategy"],
+        "numbers": document["numbers"],
+        "draw_no": document.get("draw_no"),
+        "created_at": document.get("created_at"),
+    }
+
+
+def get_user_recommendations(user_id: str) -> List[Dict[str, object]]:
+    if not user_id:
+        raise RecommendationError("userId가 비어 있습니다.")
+
+    collection = _user_recommendation_collection()
+    cursor = collection.find({"user_id": user_id}).sort("created_at", -1)
+
+    results: List[Dict[str, object]] = []
+    for document in cursor:
+        results.append(
+            {
+                "userId": document["user_id"],
+                "strategy": document["strategy"],
+                "numbers": document["numbers"],
+                "draw_no": document.get("draw_no"),
+                "created_at": document.get("created_at"),
+            }
+        )
+    return results
+
+
 __all__ = [
     "get_recommendation",
     "get_all_recommendations",
     "RecommendationError",
     "STRATEGIES",
+    "create_user_recommendation",
+    "get_user_recommendations",
 ]

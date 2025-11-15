@@ -8,10 +8,13 @@ from app.schemas import (
     RecommendationBatchResponse,
     RecommendationResponse,
     RecommendationStrategy,
+    UserRecommendationRequest,
+    UserRecommendationResponse,
 )
 from app.services.auth import require_access_token
 from app.services.recommendation import (
     RecommendationError,
+    create_user_recommendation,
     get_recommendation,
     get_all_recommendations,
 )
@@ -39,6 +42,26 @@ def getRecommendations(
     except RecommendationError as exc:
         raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
     return RecommendationResponse(**payload)
+
+
+@router.post(
+    "",
+    response_model=UserRecommendationResponse,
+    summary="사용자 맞춤 추천 저장",
+)
+def postRecommendation(
+    payload: UserRecommendationRequest,
+) -> UserRecommendationResponse:
+    try:
+        saved = create_user_recommendation(payload.userId, payload.strategy.value)
+    except RecommendationError as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
+    return UserRecommendationResponse(
+        userId=saved["userId"],
+        strategy=payload.strategy,
+        numbers=saved["numbers"],
+        draw_no=saved["draw_no"],
+    )
 
 
 @router.get(

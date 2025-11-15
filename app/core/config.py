@@ -49,6 +49,10 @@ class Settings:
         "MONGO_RECOMMENDATION_COLLECTION_NAME",
         "recommendation_snapshots",
     )
+    mongo_user_recommendation_collection_name: str = os.getenv(
+        "MONGO_USER_RECOMMENDATION_COLLECTION_NAME",
+        "user_recommendations",
+    )
     jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "change-me")
     jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
     jwt_access_token_exp_minutes: int = int(
