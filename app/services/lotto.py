@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from bs4 import BeautifulSoup
-from pymongo import ASCENDING
+from pymongo import ASCENDING, DESCENDING
 from pymongo.operations import UpdateOne
 
 from app.core.config import get_settings
@@ -181,6 +181,20 @@ def fetch_draw_info(draw_no: int) -> LottoDraw:
     )
 
 
+def get_stored_draw(draw_no: int) -> LottoDraw | None:
+    """저장소(파일/몽고)에서 특정 회차를 조회."""
+
+    settings = get_settings()
+    if settings.use_mongo_storage:
+        document = get_draw_collection().find_one({"draw_no": draw_no})
+        return _dict_to_draw(document) if document else None
+
+    for draw in load_stored_draws():
+        if draw.draw_no == draw_no:
+            return draw
+    return None
+
+
 def fetch_latest_draw_info() -> LottoDraw:
     """Fetch metadata for the latest Lotto draw available on DhLottery."""
 
@@ -191,6 +205,18 @@ def fetch_latest_draw_info() -> LottoDraw:
     latest_draw_no = _extract_latest_draw_number(page_html)
 
     return fetch_draw_info(latest_draw_no)
+
+
+def get_latest_stored_draw() -> LottoDraw | None:
+    """저장소에서 가장 최신 회차를 반환."""
+
+    settings = get_settings()
+    if settings.use_mongo_storage:
+        document = get_draw_collection().find_one(sort=[("draw_no", DESCENDING)])
+        return _dict_to_draw(document) if document else None
+
+    stored = load_stored_draws()
+    return stored[-1] if stored else None
 
 
 def sync_draw_storage() -> LottoSyncResult:

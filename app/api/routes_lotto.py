@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Path
 
+from app.core.config import get_settings
 from app.schemas import LottoDrawResponse, LottoSyncResponse
 from app.services.lotto import (
     LottoDraw,
     LottoSyncResult,
     fetch_draw_info,
     fetch_latest_draw_info,
+    get_latest_stored_draw,
+    get_stored_draw,
     sync_draw_storage,
 )
 
@@ -24,7 +27,15 @@ def getLottoLatest() -> LottoDrawResponse:
     """Return the most recent Lotto draw as published by DhLottery."""
 
     try:
-        draw: LottoDraw = fetch_latest_draw_info()
+        settings = get_settings()
+        if settings.use_mongo_storage:
+            cached = get_latest_stored_draw()
+            if cached:
+                draw = cached
+            else:
+                draw = fetch_latest_draw_info()
+        else:
+            draw = fetch_latest_draw_info()
     except ValueError as exc:
         raise HTTPException(status_code=502, detail={"message": str(exc)}) from exc
 
@@ -47,7 +58,12 @@ def getLottoDrawByNumber(
     """Return Lotto result data for the provided drawing number."""
 
     try:
-        draw = fetch_draw_info(draw_no)
+        settings = get_settings()
+        draw = None
+        if settings.use_mongo_storage:
+            draw = get_stored_draw(draw_no)
+        if draw is None:
+            draw = fetch_draw_info(draw_no)
     except ValueError as exc:
         raise HTTPException(status_code=502, detail={"message": str(exc)}) from exc
 

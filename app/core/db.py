@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pymongo import MongoClient
 from pymongo.collection import Collection
+from pymongo.errors import CollectionInvalid
 
 from app.core.config import get_settings
 
@@ -27,12 +28,29 @@ def get_mongo_client() -> MongoClient:
     return _client
 
 
-def get_draw_collection() -> Collection:
-    """Return the MongoDB collection storing Lotto draw documents."""
+def _ensure_collection_exists() -> Collection:
+    """Create 컬렉션/인덱스를 보장 후 핸들을 반환."""
 
     settings = get_settings()
     client = get_mongo_client()
-    return client[settings.mongo_db_name][settings.mongo_collection_name]
+    db = client[settings.mongo_db_name]
+    coll_name = settings.mongo_collection_name
+
+    try:
+        if coll_name not in db.list_collection_names():
+            db.create_collection(coll_name)
+    except CollectionInvalid:
+        pass  # already exists
+
+    collection = db[coll_name]
+    collection.create_index("draw_no", unique=True)
+    return collection
+
+
+def get_draw_collection() -> Collection:
+    """Return the MongoDB collection storing Lotto draw documents."""
+
+    return _ensure_collection_exists()
 
 
 def ping_mongo() -> tuple[bool, int | None]:
