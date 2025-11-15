@@ -122,7 +122,7 @@ def _recommendation_collection():
 
 def _cache_lookup(strategy: str, draw_no: int | None) -> Optional[Dict[str, object]]:
     collection = _recommendation_collection()
-    if not collection:
+    if collection is None:
         return None
     document = collection.find_one({"strategy": strategy, "draw_no": draw_no})
     if not document:
@@ -132,7 +132,7 @@ def _cache_lookup(strategy: str, draw_no: int | None) -> Optional[Dict[str, obje
 
 def _cache_store(strategy: str, draw_no: int | None, result: Dict[str, object]) -> None:
     collection = _recommendation_collection()
-    if not collection:
+    if collection is None:
         return
     collection.update_one(
         {"strategy": strategy, "draw_no": draw_no},

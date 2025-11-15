@@ -118,6 +118,40 @@ def _serialize_distribution_result(result):
     }
 
 
+def _run_randomness_suite_analysis(
+    *,
+    encoding: str,
+    block_size: int,
+    serial_block: int,
+) -> RandomnessSuiteResponse:
+    try:
+        summary = randomness_suite_summary(
+            encoding=encoding,
+            block_size=block_size,
+            serial_block=serial_block,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
+
+    response = RandomnessSuiteResponse(**summary)
+    key = _analysis_key(
+        "randomness",
+        encoding=encoding,
+        block_size=block_size,
+        serial_block=serial_block,
+    )
+    _store_snapshot(
+        key,
+        response.model_dump(),
+        metadata={
+            "encoding": encoding,
+            "block_size": block_size,
+            "serial_block": serial_block,
+        },
+    )
+    return response
+
+
 @router.get(
     "",
     response_model=LottoAnalysisSnapshotResponse,
@@ -305,7 +339,17 @@ def getLottoRandomnessSuite(
         block_size=block_size,
         serial_block=serial_block,
     )
-    snapshot = _load_snapshot_or_404(key)
+    try:
+        snapshot = _load_snapshot_or_404(key)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        _run_randomness_suite_analysis(
+            encoding=encoding,
+            block_size=block_size,
+            serial_block=serial_block,
+        )
+        snapshot = _load_snapshot_or_404(key)
     return RandomnessSuiteSnapshotResponse(
         draw_no=snapshot["max_draw_no"],
         result=RandomnessSuiteResponse(**snapshot["result"]),
@@ -335,30 +379,10 @@ def postLottoRandomnessSuite(
         description="Serial test block length m",
     ),
 ) -> RandomnessSuiteResponse:
-    try:
-        summary = randomness_suite_summary(
-            encoding=encoding,
-            block_size=block_size,
-            serial_block=serial_block,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
-
-    response = RandomnessSuiteResponse(**summary)
-    key = _analysis_key(
-        "randomness",
+    response = _run_randomness_suite_analysis(
         encoding=encoding,
         block_size=block_size,
         serial_block=serial_block,
-    )
-    _store_snapshot(
-        key,
-        response.model_dump(),
-        metadata={
-            "encoding": encoding,
-            "block_size": block_size,
-            "serial_block": serial_block,
-        },
     )
     return response
 
