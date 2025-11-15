@@ -18,6 +18,12 @@ tags_metadata = [
             "and inspecting historical results."
         ),
     },
+    {
+        "name": "analysis",
+        "description": (
+            "Statistical summaries derived from locally stored Lotto draw data."
+        ),
+    },
 ]
 
 app = FastAPI(

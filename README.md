@@ -28,7 +28,7 @@ The repo now ships with a production-ready layout for Docker/Koyeb deployments.
    - `GET /lotto/latest` fetches the newest Lotto draw (currently up to the 1197th draw on Nov 15, 2025) and returns the winning numbers plus bonus ball.  
    - `GET /lotto/{draw_no}` fetches a specific 회차 (e.g., `GET /lotto/1197`).  
    - `POST /lotto/sync` downloads any missing draws (e.g., 1001~1197) and appends them to `data/lotto_draws.json`, returning a summary of what was added.
-   - `GET /lotto/analysis` summarizes locally stored draws (chi-square, runs test, frequency tables, gap histogram). Use `/lotto/sync` first to hydrate storage.
+   - `GET /analysis` summarizes locally stored draws (chi-square, runs test, frequency tables, gap histogram). Use `/lotto/sync` first to hydrate storage.
 
 ## Running with Docker
 
@@ -73,7 +73,10 @@ Set `LOTTO_DATA_DIR` to a mounted volume if you need the synchronized draws to p
 
 ## Project Layout
 
-- `app/api/routes.py` – FastAPI router grouping the HTTP endpoints.
+- `app/api/routes.py` – master router that includes each category router.
+- `app/api/routes_system.py` – system endpoints (health, diagnostics).
+- `app/api/routes_lotto.py` – Lotto data retrieval and sync endpoints.
+- `app/api/routes_analysis.py` – statistical summaries over stored draws.
 - `app/core/config.py` – environment-driven settings (paths, endpoints, user agent).
 - `app/core/http_client.py` – shared HTTP helper built on requests.
 - `app/services/lotto.py` – DhLottery-specific helpers that crawl/sync data.
