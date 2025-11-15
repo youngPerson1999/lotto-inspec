@@ -28,8 +28,7 @@ class Settings:
     request_timeout: float = float(os.getenv("LOTTO_REQUEST_TIMEOUT", "10"))
     cors_allowed_origins: str = os.getenv(
         "LOTTO_ALLOWED_ORIGINS",
-        "http://localhost:3000",
-        "https://lotto-inspec-front.vercel.app"
+        "http://localhost:3000,https://lotto-inspec-front.vercel.app",
     )
 
     @property
