@@ -66,3 +66,13 @@ class LottoAnalysisResponse(BaseModel):
     frequency: Dict[int, int] = Field(
         ..., description="번호별 출현 빈도 (1~45)"
     )
+
+
+class StorageHealthResponse(BaseModel):
+    backend: str = Field(..., description="현재 사용 중인 저장 백엔드 (file/mongo)")
+    connected: bool = Field(..., description="백엔드 연결 성공 여부")
+    message: str = Field(..., description="상세 상태 메시지")
+    total_draws: int | None = Field(
+        None,
+        description="MongoDB 사용 시 추정된 저장 회차 수",
+    )

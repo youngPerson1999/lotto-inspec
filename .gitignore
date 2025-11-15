@@ -10,6 +10,9 @@ __pycache__/
 env/
 venv/
 
+# Local environment overrides
+.env
+
 # IDE / editor folders
 .idea/
 .vscode/

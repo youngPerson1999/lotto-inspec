@@ -8,8 +8,11 @@ from pathlib import Path
 from typing import Dict, List
 
 from bs4 import BeautifulSoup
+from pymongo import ASCENDING
+from pymongo.operations import UpdateOne
 
 from app.core.config import get_settings
+from app.core.db import get_draw_collection
 from app.core.http_client import fetch_text, fetch_url
 
 
@@ -35,6 +38,13 @@ class LottoSyncResult:
 
 def _draw_file() -> Path:
     return get_settings().draw_storage_path
+
+
+def _deduplicate_draws(draws: List[LottoDraw]) -> List[LottoDraw]:
+    dedup: Dict[int, LottoDraw] = {}
+    for draw in sorted(draws, key=lambda d: d.draw_no):
+        dedup[draw.draw_no] = draw
+    return list(dedup.values())
 
 
 def _extract_latest_draw_number(html: str) -> int:
@@ -88,6 +98,13 @@ def _dict_to_draw(payload: Dict[str, object]) -> LottoDraw:
 def load_stored_draws() -> List[LottoDraw]:
     """Load locally cached draws (if any)."""
 
+    if get_settings().use_mongo_storage:
+        return _load_draws_from_mongo()
+
+    return _load_draws_from_file()
+
+
+def _load_draws_from_file() -> List[LottoDraw]:
     draw_path = _draw_file()
     if not draw_path.exists():
         return []
@@ -97,22 +114,47 @@ def load_stored_draws() -> List[LottoDraw]:
     return sorted(draws, key=lambda draw: draw.draw_no)
 
 
+def _load_draws_from_mongo() -> List[LottoDraw]:
+    collection = get_draw_collection()
+    cursor = collection.find({}, sort=[("draw_no", ASCENDING)])
+    return [_dict_to_draw(document) for document in cursor]
+
+
 def save_draws(draws: List[LottoDraw]) -> None:
-    """Persist draws atomically to disk."""
+    """Persist draws using the configured backend."""
 
     if not draws:
         return
 
-    _ensure_data_dir()
-    dedup: Dict[int, LottoDraw] = {}
-    for draw in sorted(draws, key=lambda d: d.draw_no):
-        dedup[draw.draw_no] = draw
+    if get_settings().use_mongo_storage:
+        _save_draws_to_mongo(draws)
+    else:
+        _save_draws_to_file(draws)
 
-    serialized = [_draw_to_dict(draw) for draw in dedup.values()]
+
+def _save_draws_to_file(draws: List[LottoDraw]) -> None:
+    _ensure_data_dir()
+    dedup = _deduplicate_draws(draws)
+    serialized = [_draw_to_dict(draw) for draw in dedup]
     draw_path = _draw_file()
     tmp_path = draw_path.with_suffix(".tmp")
     tmp_path.write_text(json.dumps(serialized, indent=2))
     tmp_path.replace(draw_path)
+
+
+def _save_draws_to_mongo(draws: List[LottoDraw]) -> None:
+    collection = get_draw_collection()
+    dedup = _deduplicate_draws(draws)
+    operations = [
+        UpdateOne(
+            {"draw_no": draw.draw_no},
+            {"$set": _draw_to_dict(draw)},
+            upsert=True,
+        )
+        for draw in dedup
+    ]
+    if operations:
+        collection.bulk_write(operations, ordered=False)
 
 
 def fetch_draw_info(draw_no: int) -> LottoDraw:
@@ -173,7 +215,10 @@ def sync_draw_storage() -> LottoSyncResult:
         missing_draws.append(fetch_draw_info(draw_no))
     missing_draws.append(latest_draw)
 
-    save_draws(stored + missing_draws)
+    if get_settings().use_mongo_storage:
+        save_draws(missing_draws)
+    else:
+        save_draws(stored + missing_draws)
 
     return LottoSyncResult(
         previous_max=previous_max,
@@ -181,4 +226,3 @@ def sync_draw_storage() -> LottoSyncResult:
         inserted=len(missing_draws),
         draws=missing_draws,
     )
-

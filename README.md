@@ -24,9 +24,9 @@ The repo now ships with a production-ready layout for Docker/Koyeb deployments.
    uvicorn app.main:app --reload
    ```
 
-4. Open http://localhost:8000/docs to use the interactive Swagger UI.  
-   - `GET /lotto/latest` fetches the newest Lotto draw (currently up to the 1197th draw on Nov 15, 2025) and returns the winning numbers plus bonus ball.  
-   - `GET /lotto/{draw_no}` fetches a specific 회차 (e.g., `GET /lotto/1197`).  
+4. Open http://localhost:8000/docs to use the interactive Swagger UI.
+   - `GET /lotto/latest` fetches the newest Lotto draw (currently up to the 1197th draw on Nov 15, 2025) and returns the winning numbers plus bonus ball.
+   - `GET /lotto/{draw_no}` fetches a specific 회차 (e.g., `GET /lotto/1197`).
    - `POST /lotto/sync` downloads any missing draws (e.g., 1001~1197) and appends them to `data/lotto_draws.json`, returning a summary of what was added.
    - `GET /analysis` summarizes locally stored draws (chi-square, runs test, frequency tables, gap histogram). Use `/lotto/sync` first to hydrate storage.
 
@@ -37,13 +37,12 @@ Build and run the container locally:
 ```bash
 docker build -t lotto-insec .
 docker run --rm -p 8000:8000 \
-  -e PORT=8000 \
-  -e LOTTO_DATA_DIR=/tmp/lotto-data \
+  --env-file .env \
   lotto-insec
 ```
 
 The API will be available at http://localhost:8000.  
-Set `LOTTO_DATA_DIR` to a mounted volume if you need the synchronized draws to persist across container restarts.
+Set `LOTTO_DATA_DIR` (inside `.env`) to a mounted volume if you need the synchronized draws to persist across container restarts.
 
 ## Deploying to Koyeb
 
@@ -61,15 +60,43 @@ Set `LOTTO_DATA_DIR` to a mounted volume if you need the synchronized draws to p
 
 ## Configuration
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `LOTTO_DATA_DIR` | `data` | Directory where synced draws are stored. |
-| `LOTTO_RESULT_URL` | DhLottery `byWin` page | Override target HTML page for scraping the latest draw number. |
-| `LOTTO_JSON_URL` | DhLottery JSON endpoint | Override API base for individual draw metadata. |
-| `LOTTO_USER_AGENT` | `lotto-insec/1.0 (...)` | Custom User-Agent header for outbound requests. |
-| `LOTTO_REQUEST_TIMEOUT` | `10` seconds | Default HTTP timeout used by the crawler. |
-| `LOTTO_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated list of Origins allowed via CORS. |
-| `PORT` | `8000` | Honored by the Dockerfile/Procfile for platforms that inject a port (Koyeb, Render, etc.). |
+| Variable                | Default                 | Description                                                                                |
+| ----------------------- | ----------------------- | ------------------------------------------------------------------------------------------ |
+| `LOTTO_DATA_DIR`        | `data`                  | Directory where synced draws are stored.                                                   |
+| `LOTTO_RESULT_URL`      | DhLottery `byWin` page  | Override target HTML page for scraping the latest draw number.                             |
+| `LOTTO_JSON_URL`        | DhLottery JSON endpoint | Override API base for individual draw metadata.                                            |
+| `LOTTO_USER_AGENT`      | `lotto-insec/1.0 (...)` | Custom User-Agent header for outbound requests.                                            |
+| `LOTTO_REQUEST_TIMEOUT` | `10` seconds            | Default HTTP timeout used by the crawler.                                                  |
+| `LOTTO_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated list of Origins allowed via CORS.                                          |
+| `LOTTO_STORAGE_BACKEND` | `file`                  | Set to `mongo` to persist draws inside MongoDB instead of `data/lotto_draws.json`.         |
+| `MONGO_URI`             | _(unset)_               | Connection string used when `LOTTO_STORAGE_BACKEND=mongo` (e.g., Atlas SRV URI).           |
+| `MONGO_DB_NAME`         | `lotto-insec`           | Database name for storing draws.                                                           |
+| `MONGO_COLLECTION_NAME` | `lotto-draws`           | Collection name for storing draws.                                                         |
+| `PORT`                  | `8000`                  | Honored by the Dockerfile/Procfile for platforms that inject a port (Koyeb, Render, etc.). |
+
+### Using MongoDB for draw storage
+
+1. Create a `.env` file in the project root (already ignored by Git) and add:
+
+   ```bash
+   LOTTO_STORAGE_BACKEND=mongo
+   MONGO_URI="mongodb+srv://<user>:<password>@cluster0.mongodb.net/?retryWrites=true&w=majority"
+   MONGO_DB_NAME=lotto-insec
+   MONGO_COLLECTION_NAME=lotto-draws
+   ```
+
+2. Export the variables before starting the server locally:
+
+   ```bash
+   set -a
+   source .env
+   set +a
+   uvicorn app.main:app --reload
+   ```
+
+   For Docker/Koyeb, either pass the variables with `-e` / `env` entries or mount the `.env` file via `--env-file`.
+
+With the MongoDB backend enabled, `/lotto/sync` upserts draws into the configured collection while `/analysis` reads from the same data source.
 
 ## Project Layout
 

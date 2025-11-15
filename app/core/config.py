@@ -13,6 +13,7 @@ class Settings:
     """Runtime configuration resolved from environment variables."""
 
     data_dir: Path = Path(os.getenv("LOTTO_DATA_DIR", "data"))
+    storage_backend: str = os.getenv("LOTTO_STORAGE_BACKEND", "file")
     lotto_result_url: str = os.getenv(
         "LOTTO_RESULT_URL",
         "https://dhlottery.co.kr/gameResult.do",
@@ -30,6 +31,12 @@ class Settings:
         "LOTTO_ALLOWED_ORIGINS",
         "http://localhost:3000,https://lotto-inspec-front.vercel.app",
     )
+    mongo_uri: str = os.getenv("MONGO_URI", "")
+    mongo_db_name: str = os.getenv("MONGO_DB_NAME", "lotto-insec")
+    mongo_collection_name: str = os.getenv(
+        "MONGO_COLLECTION_NAME",
+        "lotto_draws",
+    )
 
     @property
     def draw_storage_path(self) -> Path:
@@ -43,12 +50,19 @@ class Settings:
             if origin.strip()
         ]
 
+    @property
+    def use_mongo_storage(self) -> bool:
+        return self.storage_backend.lower() == "mongo"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Return a cached Settings instance."""
 
     settings = Settings()
-    if not settings.data_dir.exists():
+    if (
+        not settings.use_mongo_storage
+        and not settings.data_dir.exists()
+    ):
         settings.data_dir.mkdir(parents=True, exist_ok=True)
     return settings
