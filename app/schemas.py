@@ -1,5 +1,6 @@
 """Pydantic schemas shared by the FastAPI endpoints."""
 
+from enum import Enum
 from typing import Dict, List
 
 from pydantic import BaseModel, Field
@@ -245,4 +246,17 @@ class RecommendationResponse(BaseModel):
     draw_no: int | None = Field(
         None,
         description="추천이 기반한 최신 회차 (존재하지 않을 수도 있음)",
+    )
+
+
+class RecommendationStrategy(str, Enum):
+    random = "random"
+    frequency_hot = "frequency_hot"
+    frequency_cold = "frequency_cold"
+    balanced_parity = "balanced_parity"
+
+
+class RecommendationBatchResponse(BaseModel):
+    recommendations: List[RecommendationResponse] = Field(
+        ..., description="여러 전략에 대한 추천 결과 목록"
     )

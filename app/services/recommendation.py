@@ -26,13 +26,13 @@ def _frequency_table(draws: List[LottoDraw]) -> Dict[int, int]:
     return calculate_number_frequencies(draws)
 
 
-def recommend_random() -> Dict[str, object]:
+def recommend_random(draw_no: int | None = None) -> Dict[str, object]:
     numbers = sorted(_RNG.sample(range(1, 46), 6))
     return {
         "strategy": "random",
         "numbers": numbers,
         "explanation": "45개 중 6개를 균등 확률로 무작위 추천했습니다.",
-        "draw_no": None,
+        "draw_no": draw_no,
     }
 
 
@@ -102,4 +102,16 @@ def get_recommendation(strategy: str) -> Dict[str, object]:
     return handler()
 
 
-__all__ = ["get_recommendation", "RecommendationError", "STRATEGIES"]
+def get_all_recommendations() -> List[Dict[str, object]]:
+    recommendations = []
+    for strategy in sorted(STRATEGIES):
+        recommendations.append(get_recommendation(strategy))
+    return recommendations
+
+
+__all__ = [
+    "get_recommendation",
+    "get_all_recommendations",
+    "RecommendationError",
+    "STRATEGIES",
+]

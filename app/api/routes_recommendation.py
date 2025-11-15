@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas import RecommendationResponse
+from app.schemas import (
+    RecommendationBatchResponse,
+    RecommendationResponse,
+    RecommendationStrategy,
+)
 from app.services.recommendation import (
-    STRATEGIES,
     RecommendationError,
     get_recommendation,
+    get_all_recommendations,
 )
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
@@ -20,16 +24,31 @@ router = APIRouter(prefix="/recommendations", tags=["recommendations"])
     summary="번호 추천 결과 조회",
 )
 def getRecommendations(
-    strategy: str = Query(
-        default="random",
-        description=f"추천 전략 ({', '.join(sorted(STRATEGIES))})",
+    strategy: RecommendationStrategy = Query(
+        default=RecommendationStrategy.random,
+        description="추천 전략",
     ),
 ) -> RecommendationResponse:
     try:
-        payload = get_recommendation(strategy)
+        payload = get_recommendation(strategy.value)
     except RecommendationError as exc:
         raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
     return RecommendationResponse(**payload)
+
+
+@router.get(
+    "/all",
+    response_model=RecommendationBatchResponse,
+    summary="모든 전략에 대한 추천 결과",
+)
+def getAllRecommendations() -> RecommendationBatchResponse:
+    try:
+        payload = get_all_recommendations()
+    except RecommendationError as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
+    return RecommendationBatchResponse(
+        recommendations=[RecommendationResponse(**item) for item in payload]
+    )
 
 
 __all__ = ["router"]
