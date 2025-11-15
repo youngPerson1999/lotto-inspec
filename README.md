@@ -28,6 +28,7 @@ The repo now ships with a production-ready layout for Docker/Koyeb deployments.
    - `GET /lotto/latest` fetches the newest Lotto draw (currently up to the 1197th draw on Nov 15, 2025) and returns the winning numbers plus bonus ball.  
    - `GET /lotto/{draw_no}` fetches a specific 회차 (e.g., `GET /lotto/1197`).  
    - `POST /lotto/sync` downloads any missing draws (e.g., 1001~1197) and appends them to `data/lotto_draws.json`, returning a summary of what was added.
+   - `GET /lotto/analysis` summarizes locally stored draws (chi-square, runs test, frequency tables, gap histogram). Use `/lotto/sync` first to hydrate storage.
 
 ## Running with Docker
 
@@ -67,6 +68,7 @@ Set `LOTTO_DATA_DIR` to a mounted volume if you need the synchronized draws to p
 | `LOTTO_JSON_URL` | DhLottery JSON endpoint | Override API base for individual draw metadata. |
 | `LOTTO_USER_AGENT` | `lotto-insec/1.0 (...)` | Custom User-Agent header for outbound requests. |
 | `LOTTO_REQUEST_TIMEOUT` | `10` seconds | Default HTTP timeout used by the crawler. |
+| `LOTTO_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated list of Origins allowed via CORS. |
 | `PORT` | `8000` | Honored by the Dockerfile/Procfile for platforms that inject a port (Koyeb, Render, etc.). |
 
 ## Project Layout
@@ -76,7 +78,7 @@ Set `LOTTO_DATA_DIR` to a mounted volume if you need the synchronized draws to p
 - `app/core/http_client.py` – shared HTTP helper built on requests.
 - `app/services/lotto.py` – DhLottery-specific helpers that crawl/sync data.
 - `app/main.py` – FastAPI application, includes routers and metadata.
-- `app/schemas.py` – shared Pydantic models for responses.
+- `app/schemas.py` – shared Pydantic models (`HealthResponse`, `Lotto*` DTOs).
 - `analysis.py` – statistical utilities (chi-square test, runs test, gap histogram) built on top of the locally stored draws.
 - `data/` – populated on demand; stores draw history retrieved via the sync endpoint.
 - `Dockerfile`, `.dockerignore`, `Procfile`, `koyeb.yaml` – deployment assets for container platforms/Koyeb.

@@ -26,10 +26,23 @@ class Settings:
         "lotto-insec/1.0 (+https://github.com/youngin-ko/lotto-insec)",
     )
     request_timeout: float = float(os.getenv("LOTTO_REQUEST_TIMEOUT", "10"))
+    cors_allowed_origins: str = os.getenv(
+        "LOTTO_ALLOWED_ORIGINS",
+        "http://localhost:3000",
+        "https://lotto-inspec-front.vercel.app"
+    )
 
     @property
     def draw_storage_path(self) -> Path:
         return self.data_dir / "lotto_draws.json"
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.cors_allowed_origins.split(",")
+            if origin.strip()
+        ]
 
 
 @lru_cache(maxsize=1)
@@ -40,4 +53,3 @@ def get_settings() -> Settings:
     if not settings.data_dir.exists():
         settings.data_dir.mkdir(parents=True, exist_ok=True)
     return settings
-
