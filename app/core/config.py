@@ -35,7 +35,11 @@ class Settings:
     mongo_db_name: str = os.getenv("MONGO_DB_NAME", "lotto-insec")
     mongo_collection_name: str = os.getenv(
         "MONGO_COLLECTION_NAME",
-        "lotto_draws",
+        "lotto-draws",
+    )
+    mongo_analysis_collection_name: str = os.getenv(
+        "MONGO_ANALYSIS_COLLECTION_NAME",
+        "analysis-snapshots",
     )
 
     @property

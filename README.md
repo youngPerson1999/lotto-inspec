@@ -24,11 +24,16 @@ The repo now ships with a production-ready layout for Docker/Koyeb deployments.
    uvicorn app.main:app --reload
    ```
 
-4. Open http://localhost:8000/docs to use the interactive Swagger UI.
-   - `GET /lotto/latest` fetches the newest Lotto draw (currently up to the 1197th draw on Nov 15, 2025) and returns the winning numbers plus bonus ball.
-   - `GET /lotto/{draw_no}` fetches a specific 회차 (e.g., `GET /lotto/1197`).
+4. Open http://localhost:8000/docs to use the interactive Swagger UI. GET 분석 엔드포인트는 MongoDB에 저장된 최신 스냅샷만 조회하며, POST 요청을 보내야 새 분석을 실행하고 저장합니다.  
+   - `GET /lotto/latest` fetches the newest Lotto draw (currently up to the 1197th draw on Nov 15, 2025) and returns the winning numbers plus bonus ball.  
+   - `GET /lotto/{draw_no}` fetches a specific 회차 (e.g., `GET /lotto/1197`).  
    - `POST /lotto/sync` downloads any missing draws (e.g., 1001~1197) and appends them to `data/lotto_draws.json`, returning a summary of what was added.
    - `GET /analysis` summarizes locally stored draws (chi-square, runs test, frequency tables, gap histogram). Use `/lotto/sync` first to hydrate storage.
+   - `GET /analysis/dependency` runs 시계열 자기상관 + 직전 회차 재등장 확률 비교로 회차 간 의존성이 있는지 검정합니다.
+   - `GET /analysis/runs/sum` tests whether 회차 합계가 중앙값 기준으로 너무 오래 한쪽에 머무는지 (런 검정).
+   - `GET /analysis/patterns` checks 홀짝/저고/끝자리 분포가 이론적 확률과 일치하는지 χ² 검정.
+   - `POST /analysis/distribution` compares 합계/간격 분포 전체가 시뮬레이션한 이상적 분포와 얼마나 차이나는지를 χ² + KS 통계로 보여줍니다 (계산 비용 때문에 POST 전용).
+   - `GET /analysis/randomness` runs a lightweight NIST-style randomness suite on 비트열 인코딩(번호 존재 여부/이진 표현 등) 후 각 검정의 p-value를 제공합니다. (POST로 재계산 가능)
 
 ## Running with Docker
 
@@ -72,6 +77,7 @@ Set `LOTTO_DATA_DIR` (inside `.env`) to a mounted volume if you need the synchro
 | `MONGO_URI`             | _(unset)_               | Connection string used when `LOTTO_STORAGE_BACKEND=mongo` (e.g., Atlas SRV URI).           |
 | `MONGO_DB_NAME`         | `lotto-insec`           | Database name for storing draws.                                                           |
 | `MONGO_COLLECTION_NAME` | `lotto-draws`           | Collection name for storing draws.                                                         |
+| `MONGO_ANALYSIS_COLLECTION_NAME` | `analysis_snapshots` | Collection name that stores cached 분석 결과 스냅샷. |
 | `PORT`                  | `8000`                  | Honored by the Dockerfile/Procfile for platforms that inject a port (Koyeb, Render, etc.). |
 
 ### Using MongoDB for draw storage
