@@ -231,3 +231,18 @@ class PatternAnalysisSnapshotResponse(BaseModel):
 class RandomnessSuiteSnapshotResponse(BaseModel):
     draw_no: int = Field(..., description="분석에 사용된 마지막 회차 번호")
     result: RandomnessSuiteResponse
+
+
+class RecommendationResponse(BaseModel):
+    strategy: str = Field(..., description="사용된 추천 전략 키")
+    numbers: List[int] = Field(
+        ...,
+        description="추천된 번호 6개",
+        min_length=6,
+        max_length=6,
+    )
+    explanation: str = Field(..., description="추천 근거 또는 설명")
+    draw_no: int | None = Field(
+        None,
+        description="추천이 기반한 최신 회차 (존재하지 않을 수도 있음)",
+    )

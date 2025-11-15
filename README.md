@@ -34,6 +34,7 @@ The repo now ships with a production-ready layout for Docker/Koyeb deployments.
    - `GET /analysis/patterns` checks 홀짝/저고/끝자리 분포가 이론적 확률과 일치하는지 χ² 검정.
    - `POST /analysis/distribution` compares 합계/간격 분포 전체가 시뮬레이션한 이상적 분포와 얼마나 차이나는지를 χ² + KS 통계로 보여줍니다 (계산 비용 때문에 POST 전용).
    - `GET /analysis/randomness` runs a lightweight NIST-style randomness suite on 비트열 인코딩(번호 존재 여부/이진 표현 등) 후 각 검정의 p-value를 제공합니다. (POST로 재계산 가능)
+   - `GET /recommendations?strategy=frequency_hot` 등으로 랜덤/분석 기반 추천 조합을 받을 수 있습니다 (`random`, `frequency_hot`, `frequency_cold`, `balanced_parity` 지원).
 
 ## Running with Docker
 
