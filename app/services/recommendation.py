@@ -44,7 +44,7 @@ def _latest_draw_no() -> Optional[int]:
     return latest.draw_no if latest else None
 
 
-def _recommendation_draw_no() -> Optional[int]:
+def _recommendation_draw_no() -> int:
     latest_stored = _latest_draw_no()
     latest_remote = _latest_remote_draw_no()
 
@@ -56,7 +56,12 @@ def _recommendation_draw_no() -> Optional[int]:
     elif latest_remote is not None:
         latest_known = latest_remote
 
-    return latest_known + 1 if latest_known is not None else None
+    if latest_known is None:
+        raise RecommendationError(
+            "회차 정보를 확인할 수 없습니다. /lotto/sync를 먼저 실행하세요."
+        )
+
+    return latest_known + 1
 
 
 def _latest_known_draw_no() -> Optional[int]:
@@ -83,7 +88,7 @@ def _frequency_table(draws: List[LottoDraw]) -> Dict[int, int]:
     return calculate_number_frequencies(draws)
 
 
-def _resolve_target_draw_no(draw_no: int | None) -> int | None:
+def _resolve_target_draw_no(draw_no: int | None) -> int:
     if draw_no is not None:
         return draw_no
     return _recommendation_draw_no()

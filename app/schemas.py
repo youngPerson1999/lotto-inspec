@@ -340,10 +340,7 @@ class RecommendationResponse(BaseModel):
         max_length=6,
     )
     explanation: str = Field(..., description="추천 근거 또는 설명")
-    draw_no: int | None = Field(
-        None,
-        description="추천이 목표로 하는 다음 회차 번호 (존재하지 않을 수도 있음)",
-    )
+    draw_no: int = Field(..., description="추천이 목표로 하는 다음 회차 번호")
 
 
 class RecommendationStrategy(str, Enum):
