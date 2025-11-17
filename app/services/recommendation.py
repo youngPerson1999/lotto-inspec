@@ -44,6 +44,34 @@ def _latest_draw_no() -> Optional[int]:
     return latest.draw_no if latest else None
 
 
+def _recommendation_draw_no() -> Optional[int]:
+    latest_stored = _latest_draw_no()
+    latest_remote = _latest_remote_draw_no()
+
+    latest_known = None
+    if latest_stored is not None and latest_remote is not None:
+        latest_known = max(latest_stored, latest_remote)
+    elif latest_stored is not None:
+        latest_known = latest_stored
+    elif latest_remote is not None:
+        latest_known = latest_remote
+
+    return latest_known + 1 if latest_known is not None else None
+
+
+def _latest_known_draw_no() -> Optional[int]:
+    latest_stored = _latest_draw_no()
+    latest_remote = _latest_remote_draw_no()
+
+    if latest_stored is not None and latest_remote is not None:
+        return max(latest_stored, latest_remote)
+    if latest_stored is not None:
+        return latest_stored
+    if latest_remote is not None:
+        return latest_remote
+    return None
+
+
 def _latest_remote_draw_no() -> Optional[int]:
     try:
         return fetch_latest_draw_info().draw_no
@@ -55,44 +83,53 @@ def _frequency_table(draws: List[LottoDraw]) -> Dict[int, int]:
     return calculate_number_frequencies(draws)
 
 
+def _resolve_target_draw_no(draw_no: int | None) -> int | None:
+    if draw_no is not None:
+        return draw_no
+    return _recommendation_draw_no()
+
+
 def recommend_random(draw_no: int | None = None) -> Dict[str, object]:
     numbers = sorted(_RNG.sample(range(1, 46), 6))
+    target_draw_no = _resolve_target_draw_no(draw_no)
     return {
         "strategy": "random",
         "numbers": numbers,
         "explanation": "45개 중 6개를 균등 확률로 무작위 추천했습니다.",
-        "draw_no": draw_no,
+        "draw_no": target_draw_no,
     }
 
 
-def recommend_frequency_hot(_: int | None = None) -> Dict[str, object]:
-    draws, draw_no = _ensure_draws()
+def recommend_frequency_hot(draw_no: int | None = None) -> Dict[str, object]:
+    draws, latest_draw_no = _ensure_draws()
     freq = _frequency_table(draws)
     top = sorted(freq.items(), key=lambda item: (-item[1], item[0]))[:6]
     numbers = sorted(num for num, _ in top)
+    target_draw_no = _resolve_target_draw_no(draw_no) or (latest_draw_no + 1)
     return {
         "strategy": "frequency_hot",
         "numbers": numbers,
         "explanation": "최근까지 가장 자주 등장한 번호 Top 6 조합입니다.",
-        "draw_no": draw_no,
+        "draw_no": target_draw_no,
     }
 
 
-def recommend_frequency_cold(_: int | None = None) -> Dict[str, object]:
-    draws, draw_no = _ensure_draws()
+def recommend_frequency_cold(draw_no: int | None = None) -> Dict[str, object]:
+    draws, latest_draw_no = _ensure_draws()
     freq = _frequency_table(draws)
     bottom = sorted(freq.items(), key=lambda item: (item[1], item[0]))[:6]
     numbers = sorted(num for num, _ in bottom)
+    target_draw_no = _resolve_target_draw_no(draw_no) or (latest_draw_no + 1)
     return {
         "strategy": "frequency_cold",
         "numbers": numbers,
         "explanation": "오랫동안 잘 나오지 않은 번호 6개를 골랐습니다.",
-        "draw_no": draw_no,
+        "draw_no": target_draw_no,
     }
 
 
-def recommend_balanced_parity(_: int | None = None) -> Dict[str, object]:
-    draws, draw_no = _ensure_draws()
+def recommend_balanced_parity(draw_no: int | None = None) -> Dict[str, object]:
+    draws, latest_draw_no = _ensure_draws()
     freq = _frequency_table(draws)
 
     odds = sorted(
@@ -107,11 +144,12 @@ def recommend_balanced_parity(_: int | None = None) -> Dict[str, object]:
         raise RecommendationError("짝수/홀수 데이터가 충분하지 않습니다.")
 
     numbers = sorted([num for num, _ in odds[:3]] + [num for num, _ in evens[:3]])
+    target_draw_no = _resolve_target_draw_no(draw_no) or (latest_draw_no + 1)
     return {
         "strategy": "balanced_parity",
         "numbers": numbers,
         "explanation": "최근 빈도를 기반으로 짝수 3개/홀수 3개 균형 조합을 추천합니다.",
-        "draw_no": draw_no,
+        "draw_no": target_draw_no,
     }
 
 
@@ -213,7 +251,7 @@ def _run_strategy(strategy: str, draw_no: int | None) -> Dict[str, object]:
 
 
 def get_recommendation(strategy: str) -> Dict[str, object]:
-    draw_no = _latest_draw_no()
+    draw_no = _recommendation_draw_no()
     cached = _cache_lookup(strategy, draw_no)
     if cached:
         return cached
@@ -224,13 +262,11 @@ def get_recommendation(strategy: str) -> Dict[str, object]:
 
 
 def get_all_recommendations() -> List[Dict[str, object]]:
-    latest_remote_draw_no = _latest_remote_draw_no()
-    if latest_remote_draw_no is not None:
-        cached_batch = _cache_lookup_batch(latest_remote_draw_no)
-        if cached_batch:
-            return cached_batch
+    draw_no = _recommendation_draw_no()
+    cached_batch = _cache_lookup_batch(draw_no) if draw_no is not None else None
+    if cached_batch:
+        return cached_batch
 
-    draw_no = _latest_draw_no()
     results: List[Dict[str, object]] = []
     for strategy in sorted(STRATEGIES):
         cached = _cache_lookup(strategy, draw_no)
@@ -334,6 +370,13 @@ def evaluate_user_recommendation(
     stored_draw_no = document.get("draw_no")
     if stored_draw_no != draw_no:
         raise RecommendationError("요청 회차가 저장된 추천 회차와 일치하지 않습니다.")
+
+    latest_known_draw_no = _latest_known_draw_no()
+    if latest_known_draw_no is not None and draw_no > latest_known_draw_no:
+        raise RecommendationError(
+            f"{draw_no}회차는 아직 추첨되지 않았어요. "
+            f"가장 최근 추첨은 {latest_known_draw_no}회차입니다."
+        )
 
     settings = get_settings()
     draw = None

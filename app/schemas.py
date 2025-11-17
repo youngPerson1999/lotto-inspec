@@ -103,6 +103,34 @@ class RecommendationEvaluationRequest(BaseModel):
     )
 
 
+class UserTicketRequest(BaseModel):
+    draw_no: int = Field(..., gt=0, description="검증/저장할 회차 번호")
+    numbers: List[int] = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        description="사용자 입력 번호 (6개, 중복 불가)",
+    )
+
+
+class UserTicketResponse(BaseModel):
+    id: str = Field(..., description="저장된 사용자 티켓 고유 ID")
+    userId: str = Field(..., description="티켓을 저장한 사용자 ID")
+    draw_no: int = Field(..., description="검증한 회차 번호")
+    numbers: List[int] = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        description="사용자 입력 번호 (오름차순)",
+    )
+    created_at: datetime | None = Field(
+        None, description="티켓을 저장한 시각 (UTC)"
+    )
+    evaluation: LottoCheckResponse = Field(
+        ..., description="당첨 여부 평가 결과"
+    )
+
+
 class ChiSquareAnalysisResponse(BaseModel):
     statistic: float = Field(..., description="카이제곱 통계량")
     p_value: float = Field(..., description="균등분포 가설의 p-value")
@@ -314,7 +342,7 @@ class RecommendationResponse(BaseModel):
     explanation: str = Field(..., description="추천 근거 또는 설명")
     draw_no: int | None = Field(
         None,
-        description="추천이 기반한 최신 회차 (존재하지 않을 수도 있음)",
+        description="추천이 목표로 하는 다음 회차 번호 (존재하지 않을 수도 있음)",
     )
 
 
@@ -348,7 +376,7 @@ class UserRecommendationResponse(BaseModel):
     )
     draw_no: int | None = Field(
         None,
-        description="추천이 기준한 회차 번호",
+        description="추천이 목표로 하는 회차 번호",
     )
     created_at: datetime | None = Field(
         None,
