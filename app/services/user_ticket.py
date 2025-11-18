@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from pymongo import ReturnDocument
+from pymongo.errors import OperationFailure
 
 from app.core.config import get_settings
 from app.core.db import get_mongo_client
@@ -48,10 +48,17 @@ def _user_ticket_collection():
     collection = client[settings.mongo_db_name][
         settings.mongo_user_ticket_collection_name
     ]
-    collection.create_index(
-        [("user_id", 1), ("draw_no", 1), ("numbers", 1)],
-        unique=True,
-    )
+    # Allow multiple tickets per draw by removing unique constraints, even if an old
+    # unique index existed.
+    try:
+        index_info = collection.index_information()
+        legacy_idx = "user_id_1_draw_no_1_numbers_1"
+        if legacy_idx in index_info:
+            collection.drop_index(legacy_idx)
+    except OperationFailure:
+        pass
+
+    collection.create_index([("user_id", 1), ("draw_no", 1), ("created_at", -1)])
     collection.create_index("created_at")
     return collection
 
@@ -84,23 +91,16 @@ def save_user_ticket(
     now = datetime.now(timezone.utc)
 
     collection = _user_ticket_collection()
-    document = collection.find_one_and_update(
-        {"user_id": user_id, "draw_no": draw_no, "numbers": evaluation["numbers"]},
-        {
-            "$set": {
-                "user_id": user_id,
-                "draw_no": draw_no,
-                "numbers": evaluation["numbers"],
-                "evaluation": evaluation,
-                "updated_at": now,
-            },
-            "$setOnInsert": {"created_at": now},
-        },
-        upsert=True,
-        return_document=ReturnDocument.AFTER,
-    )
-    if not document:
-        raise UserTicketError("티켓 정보를 저장하지 못했습니다.")
+    document = {
+        "user_id": user_id,
+        "draw_no": draw_no,
+        "numbers": evaluation["numbers"],
+        "evaluation": evaluation,
+        "created_at": now,
+        "updated_at": now,
+    }
+    inserted = collection.insert_one(document)
+    document["_id"] = inserted.inserted_id
 
     return {
         "id": str(document["_id"]),
