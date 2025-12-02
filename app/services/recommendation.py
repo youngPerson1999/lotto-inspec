@@ -6,15 +6,12 @@ from datetime import datetime, timezone
 from secrets import SystemRandom
 from typing import Callable, Dict, List, Optional, Tuple
 
-from pymongo import ReturnDocument
-
-from bson import ObjectId
-from bson.errors import InvalidId
-from pymongo import ReturnDocument
+from sqlalchemy import and_, select
 
 from analysis import calculate_number_frequencies
 from app.core.config import get_settings
-from app.core.db import get_mongo_client
+from app.core.db import session_scope
+from app.core.models import RecommendationSnapshotORM, UserRecommendationORM
 from app.services.lotto import (
     LottoDraw,
     evaluate_ticket,
@@ -30,6 +27,14 @@ _RNG = SystemRandom()
 
 class RecommendationError(ValueError):
     """Raised when recommendations cannot be generated."""
+
+
+def _ensure_database_backend() -> None:
+    if not get_settings().use_database_storage:
+        raise RecommendationError(
+            "MariaDB 백엔드에서만 추천 저장 기능을 사용할 수 있습니다. "
+            "LOTTO_STORAGE_BACKEND=mariadb 환경을 설정하세요.",
+        )
 
 
 def _ensure_draws() -> Tuple[List[LottoDraw], int]:
@@ -168,81 +173,69 @@ STRATEGIES: Dict[str, StrategyHandler] = {
 }
 
 
-def _recommendation_collection():
-    settings = get_settings()
-    if not settings.use_mongo_storage:
-        return None
-    client = get_mongo_client()
-    collection = client[settings.mongo_db_name][
-        settings.mongo_recommendation_collection_name
-    ]
-    collection.create_index([("strategy", 1), ("draw_no", 1)], unique=True)
-    return collection
-
-
-def _user_recommendation_collection():
-    settings = get_settings()
-    if not settings.use_mongo_storage:
-        raise RecommendationError("MongoDB 백엔드에서만 사용자 추천 저장이 가능합니다.")
-
-    client = get_mongo_client()
-    collection = client[settings.mongo_db_name][
-        settings.mongo_user_recommendation_collection_name
-    ]
-    collection.create_index(
-        [("user_id", 1), ("draw_no", 1), ("strategy", 1)],
-        unique=True,
-    )
-    return collection
-
-
+def _recommendation_cache_enabled() -> bool:
+    return get_settings().use_database_storage
 def _cache_lookup(strategy: str, draw_no: int | None) -> Optional[Dict[str, object]]:
-    collection = _recommendation_collection()
-    if collection is None:
+    if not _recommendation_cache_enabled():
         return None
-    document = collection.find_one({"strategy": strategy, "draw_no": draw_no})
-    if not document:
+    with session_scope() as session:
+        record = session.scalars(
+            select(RecommendationSnapshotORM).where(
+                RecommendationSnapshotORM.strategy == strategy,
+                RecommendationSnapshotORM.draw_no == draw_no,
+            )
+        ).first()
+    if not record:
         return None
-    return document["result"]
+    return record.result
 
 
 def _cache_store(strategy: str, draw_no: int | None, result: Dict[str, object]) -> None:
-    collection = _recommendation_collection()
-    if collection is None:
+    if not _recommendation_cache_enabled():
         return
-    collection.update_one(
-        {"strategy": strategy, "draw_no": draw_no},
-        {
-            "$set": {
-                "result": result,
-                "updated_at": datetime.now(timezone.utc),
-            }
-        },
-        upsert=True,
-    )
+    now = datetime.now(timezone.utc)
+    with session_scope() as session:
+        record = session.scalars(
+            select(RecommendationSnapshotORM).where(
+                RecommendationSnapshotORM.strategy == strategy,
+                RecommendationSnapshotORM.draw_no == draw_no,
+            )
+        ).first()
+        if record is None:
+            record = RecommendationSnapshotORM(
+                strategy=strategy,
+                draw_no=draw_no,
+                result=result,
+                updated_at=now,
+            )
+            session.add(record)
+        else:
+            record.result = result
+            record.updated_at = now
 
 
 def _cache_lookup_batch(draw_no: int | None) -> Optional[List[Dict[str, object]]]:
-    collection = _recommendation_collection()
-    if collection is None or draw_no is None:
+    if not _recommendation_cache_enabled() or draw_no is None:
         return None
 
-    documents = list(collection.find({"draw_no": draw_no}))
-    if not documents:
+    with session_scope() as session:
+        records = session.scalars(
+            select(RecommendationSnapshotORM).where(
+                RecommendationSnapshotORM.draw_no == draw_no
+            )
+        ).all()
+
+    if not records:
         return None
 
     strategy_order = {name: index for index, name in enumerate(sorted(STRATEGIES))}
 
-    def _key(document: Dict[str, object]) -> tuple[int, str]:
-        result = document.get("result", {})
-        strategy = result.get("strategy") or document.get("strategy") or ""
+    def _key(record: RecommendationSnapshotORM) -> tuple[int, str]:
+        result = record.result or {}
+        strategy = result.get("strategy") or record.strategy or ""
         return strategy_order.get(strategy, len(strategy_order)), strategy
 
-    return [
-        document["result"]
-        for document in sorted(documents, key=_key)
-        if document.get("result")
-    ]
+    return [record.result for record in sorted(records, key=_key) if record.result]
 
 
 def _run_strategy(strategy: str, draw_no: int | None) -> Dict[str, object]:
@@ -288,32 +281,52 @@ def create_user_recommendation(user_id: str, strategy: str) -> Dict[str, object]
     if not user_id:
         raise RecommendationError("userId가 비어 있습니다.")
 
+    _ensure_database_backend()
     recommendation = get_recommendation(strategy)
     numbers = recommendation["numbers"]
     draw_no = recommendation.get("draw_no")
 
-    collection = _user_recommendation_collection()
     now = datetime.now(timezone.utc)
-    document = collection.find_one_and_update(
-        {"user_id": user_id, "draw_no": draw_no, "strategy": strategy},
-        {
-            "$set": {
-                "user_id": user_id,
-                "strategy": strategy,
-                "numbers": numbers,
-                "draw_no": draw_no,
-                "updated_at": now,
-            },
-            "$setOnInsert": {"created_at": now, "evaluation": None},
-        },
-        upsert=True,
-        return_document=ReturnDocument.AFTER,
-    )
-    if not document:
-        raise RecommendationError("추천 정보를 저장하지 못했습니다.")
+    with session_scope() as session:
+        record = session.scalars(
+            select(UserRecommendationORM).where(
+                and_(
+                    UserRecommendationORM.user_id == user_id,
+                    UserRecommendationORM.draw_no == draw_no,
+                    UserRecommendationORM.strategy == strategy,
+                )
+            )
+        ).first()
+
+        if record is None:
+            record = UserRecommendationORM(
+                user_id=user_id,
+                strategy=strategy,
+                numbers=numbers,
+                draw_no=draw_no,
+                evaluation=None,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(record)
+            session.flush()
+        else:
+            record.numbers = numbers
+            record.draw_no = draw_no
+            record.updated_at = now
+
+        document = {
+            "id": record.id,
+            "user_id": record.user_id,
+            "strategy": record.strategy,
+            "numbers": record.numbers,
+            "draw_no": record.draw_no,
+            "created_at": record.created_at,
+            "evaluation": record.evaluation,
+        }
 
     return {
-        "id": str(document["_id"]),
+        "id": str(document["id"]),
         "userId": document["user_id"],
         "strategy": document["strategy"],
         "numbers": document["numbers"],
@@ -327,20 +340,25 @@ def get_user_recommendations(user_id: str) -> List[Dict[str, object]]:
     if not user_id:
         raise RecommendationError("userId가 비어 있습니다.")
 
-    collection = _user_recommendation_collection()
-    cursor = collection.find({"user_id": user_id}).sort("created_at", -1)
+    _ensure_database_backend()
+    with session_scope() as session:
+        rows = session.scalars(
+            select(UserRecommendationORM)
+            .where(UserRecommendationORM.user_id == user_id)
+            .order_by(UserRecommendationORM.created_at.desc())
+        ).all()
 
     results: List[Dict[str, object]] = []
-    for document in cursor:
+    for document in rows:
         results.append(
             {
-                "id": str(document["_id"]),
-                "userId": document["user_id"],
-                "strategy": document["strategy"],
-                "numbers": document["numbers"],
-                "draw_no": document.get("draw_no"),
-                "created_at": document.get("created_at"),
-                "evaluation": document.get("evaluation"),
+                "id": str(document.id),
+                "userId": document.user_id,
+                "strategy": document.strategy,
+                "numbers": document.numbers,
+                "draw_no": document.draw_no,
+                "created_at": document.created_at,
+                "evaluation": document.evaluation,
             }
         )
     return results
@@ -357,24 +375,31 @@ def evaluate_user_recommendation(
     if not recommendation_id:
         raise RecommendationError("추천 ID가 필요합니다.")
 
-    collection = _user_recommendation_collection()
+    _ensure_database_backend()
     try:
-        object_id = ObjectId(recommendation_id)
-    except InvalidId as exc:
+        record_id = int(recommendation_id)
+    except ValueError as exc:
         raise RecommendationError("유효하지 않은 추천 ID입니다.") from exc
 
-    document = collection.find_one({"_id": object_id, "user_id": user_id})
-    if not document:
-        raise RecommendationError("추천 정보를 찾을 수 없습니다.")
+    with session_scope() as session:
+        record = session.get(UserRecommendationORM, record_id)
+        if not record or record.user_id != user_id:
+            raise RecommendationError("추천 정보를 찾을 수 없습니다.")
+        stored_numbers = sorted(int(num) for num in record.numbers or [])
+        stored_draw_no = record.draw_no
 
-    stored_numbers = sorted(int(num) for num in document.get("numbers", []))
-    provided_numbers = sorted(int(num) for num in numbers)
-    if stored_numbers != provided_numbers:
-        raise RecommendationError("요청 번호가 저장된 추천 번호와 일치하지 않습니다.")
-
-    stored_draw_no = document.get("draw_no")
     if stored_draw_no != draw_no:
         raise RecommendationError("요청 회차가 저장된 추천 회차와 일치하지 않습니다.")
+
+    if sorted(int(num) for num in numbers) != stored_numbers:
+        raise RecommendationError("요청 번호가 저장된 추천 번호와 일치하지 않습니다.")
+
+    settings = get_settings()
+    draw = None
+    if settings.use_database_storage:
+        draw = get_stored_draw(draw_no)
+    if draw is None:
+        draw = fetch_draw_info(draw_no)
 
     latest_known_draw_no = _latest_known_draw_no()
     if latest_known_draw_no is not None and draw_no > latest_known_draw_no:
@@ -382,13 +407,6 @@ def evaluate_user_recommendation(
             f"{draw_no}회차는 아직 추첨되지 않았어요. "
             f"가장 최근 추첨은 {latest_known_draw_no}회차입니다."
         )
-
-    settings = get_settings()
-    draw = None
-    if settings.use_mongo_storage:
-        draw = get_stored_draw(draw_no)
-    if draw is None:
-        draw = fetch_draw_info(draw_no)
 
     result = evaluate_ticket(draw, stored_numbers)
     evaluation_payload = {
@@ -398,15 +416,12 @@ def evaluate_user_recommendation(
         "bonus_matched": result.get("bonus_matched"),
     }
 
-    collection.update_one(
-        {"_id": object_id},
-        {
-            "$set": {
-                "evaluation": evaluation_payload,
-                "evaluated_at": datetime.now(timezone.utc),
-            }
-        },
-    )
+    with session_scope() as session:
+        record = session.get(UserRecommendationORM, record_id)
+        if not record:
+            raise RecommendationError("추천 정보를 찾을 수 없습니다.")
+        record.evaluation = evaluation_payload
+        record.evaluated_at = datetime.now(timezone.utc)
 
     return result
 

@@ -9,27 +9,29 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.context import CryptContext
+from sqlalchemy import delete, select
 
 from app.core.config import get_settings
-from app.core.db import get_mongo_client
+from app.core.db import session_scope
+from app.core.models import RefreshTokenORM, UserORM
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = HTTPBearer(auto_error=False)
 
 
-def _user_collection():
-    settings = get_settings()
-    if not settings.use_mongo_storage:
-        raise RuntimeError("MongoDB 백엔드에서만 인증 기능을 사용할 수 있습니다.")
-
-    client = get_mongo_client()
-    return client[settings.mongo_db_name][settings.mongo_user_collection_name]
+def _ensure_database_backend() -> None:
+    if not get_settings().use_database_storage:
+        raise RuntimeError("MariaDB 백엔드에서만 인증 기능을 사용할 수 있습니다.")
 
 
-def _ensure_indexes():
-    collection = _user_collection()
-    collection.create_index("user_id", unique=True)
-    collection.create_index("refresh_tokens.token")
+def _user_to_dict(record: UserORM) -> Dict[str, Any]:
+    return {
+        "id": record.id,
+        "user_id": record.user_id,
+        "password_hash": record.password_hash,
+        "name": record.name,
+        "created_at": record.created_at,
+    }
 
 
 def hash_password(password: str) -> str:
@@ -104,7 +106,7 @@ def decode_token(token: str, expected_type: str = "access") -> Dict[str, Any]:
 
 def _serialize_user(document: Dict[str, Any]) -> Dict[str, Any]:
     return {
-        "id": document.get("user_seq"),
+        "id": document.get("id"),
         "userId": document["user_id"],
         "name": document["name"],
     }
@@ -115,70 +117,94 @@ def user_profile(document: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def create_user(user_id: str, password: str, name: str) -> Dict[str, Any]:
-    _ensure_indexes()
-    collection = _user_collection()
+    _ensure_database_backend()
+    with session_scope() as session:
+        existing = session.scalars(
+            select(UserORM).where(UserORM.user_id == user_id)
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="이미 존재하는 사용자 ID입니다.",
+            )
 
-    if collection.find_one({"user_id": user_id}):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="이미 존재하는 사용자 ID입니다.",
+        record = UserORM(
+            user_id=user_id,
+            password_hash=hash_password(password),
+            name=name,
+            created_at=datetime.now(timezone.utc),
         )
-
-    user_seq = (collection.estimated_document_count() or 0) + 1
-    document = {
-        "user_id": user_id,
-        "password_hash": hash_password(password),
-        "name": name,
-        "user_seq": user_seq,
-        "refresh_tokens": [],
-        "created_at": datetime.now(timezone.utc),
-    }
-    collection.insert_one(document)
+        session.add(record)
+        session.flush()
+        document = _user_to_dict(record)
     return _serialize_user(document)
 
 
 def authenticate_user(user_id: str, password: str) -> Dict[str, Any]:
-    collection = _user_collection()
-    user = collection.find_one({"user_id": user_id})
-    if not user or not verify_password(password, user["password_hash"]):
+    _ensure_database_backend()
+    with session_scope() as session:
+        record = session.scalars(
+            select(UserORM).where(UserORM.user_id == user_id)
+        ).first()
+
+    if not record or not verify_password(password, record.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="사용자 ID 또는 비밀번호가 올바르지 않습니다.",
         )
-    return user
+    return _user_to_dict(record)
 
 
 def store_refresh_token(user_id: str, token: str, expires_at: datetime) -> None:
-    collection = _user_collection()
-    collection.update_one(
-        {"user_id": user_id},
-        {
-            "$push": {
-                "refresh_tokens": {
-                    "token": token,
-                    "expires_at": expires_at,
-                }
-            }
-        },
-    )
+    _ensure_database_backend()
+    with session_scope() as session:
+        session.add(
+            RefreshTokenORM(
+                user_id=user_id,
+                token=token,
+                expires_at=expires_at,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
 
 
 def remove_refresh_token(token: str) -> None:
-    collection = _user_collection()
-    collection.update_one(
-        {"refresh_tokens.token": token},
-        {"$pull": {"refresh_tokens": {"token": token}}},
-    )
+    _ensure_database_backend()
+    with session_scope() as session:
+        session.execute(
+            delete(RefreshTokenORM).where(RefreshTokenORM.token == token)
+        )
 
 
 def find_user_by_refresh_token(token: str) -> Optional[Dict[str, Any]]:
-    collection = _user_collection()
-    return collection.find_one({"refresh_tokens.token": token})
+    _ensure_database_backend()
+    with session_scope() as session:
+        row = session.execute(
+            select(UserORM, RefreshTokenORM)
+            .join(
+                RefreshTokenORM,
+                RefreshTokenORM.user_id == UserORM.user_id,
+            )
+            .where(RefreshTokenORM.token == token)
+        ).first()
+
+    if not row:
+        return None
+
+    user, refresh = row
+    document = _user_to_dict(user)
+    document["refresh_tokens"] = [
+        {"token": refresh.token, "expires_at": refresh.expires_at}
+    ]
+    return document
 
 
 def revoke_all_refresh_tokens(user_id: str) -> None:
-    collection = _user_collection()
-    collection.update_one({"user_id": user_id}, {"$set": {"refresh_tokens": []}})
+    _ensure_database_backend()
+    with session_scope() as session:
+        session.execute(
+            delete(RefreshTokenORM).where(RefreshTokenORM.user_id == user_id)
+        )
 
 
 def issue_tokens_for_user(user: Dict[str, Any]) -> Dict[str, Any]:
@@ -205,14 +231,17 @@ def get_current_user(credentials: HTTPAuthorizationCredentials | None) -> Dict[s
 
     payload = decode_token(credentials.credentials, expected_type="access")
     user_id = payload["sub"]
-    collection = _user_collection()
-    user = collection.find_one({"user_id": user_id})
-    if not user:
+    _ensure_database_backend()
+    with session_scope() as session:
+        record = session.scalars(
+            select(UserORM).where(UserORM.user_id == user_id)
+        ).first()
+    if not record:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="사용자를 찾을 수 없습니다.",
         )
-    return user
+    return _user_to_dict(record)
 
 
 def require_access_token(

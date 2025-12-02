@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Dict, List
 
 from bs4 import BeautifulSoup
-from pymongo import ASCENDING, DESCENDING
-from pymongo.operations import UpdateOne
+from sqlalchemy import desc, select
 
 from app.core.config import get_settings
-from app.core.db import get_draw_collection
+from app.core.db import session_scope
+from app.core.models import LottoDrawORM
 from app.core.http_client import fetch_text, fetch_url
 
 
@@ -98,8 +98,8 @@ def _dict_to_draw(payload: Dict[str, object]) -> LottoDraw:
 def load_stored_draws() -> List[LottoDraw]:
     """Load locally cached draws (if any)."""
 
-    if get_settings().use_mongo_storage:
-        return _load_draws_from_mongo()
+    if get_settings().use_database_storage:
+        return _load_draws_from_db()
 
     return _load_draws_from_file()
 
@@ -114,10 +114,20 @@ def _load_draws_from_file() -> List[LottoDraw]:
     return sorted(draws, key=lambda draw: draw.draw_no)
 
 
-def _load_draws_from_mongo() -> List[LottoDraw]:
-    collection = get_draw_collection()
-    cursor = collection.find({}, sort=[("draw_no", ASCENDING)])
-    return [_dict_to_draw(document) for document in cursor]
+def _load_draws_from_db() -> List[LottoDraw]:
+    with session_scope() as session:
+        rows = session.scalars(
+            select(LottoDrawORM).order_by(LottoDrawORM.draw_no.asc())
+        ).all()
+    return [
+        LottoDraw(
+            draw_no=row.draw_no,
+            draw_date=row.draw_date,
+            numbers=list(row.numbers or []),
+            bonus=row.bonus,
+        )
+        for row in rows
+    ]
 
 
 def save_draws(draws: List[LottoDraw]) -> None:
@@ -126,8 +136,8 @@ def save_draws(draws: List[LottoDraw]) -> None:
     if not draws:
         return
 
-    if get_settings().use_mongo_storage:
-        _save_draws_to_mongo(draws)
+    if get_settings().use_database_storage:
+        _save_draws_to_db(draws)
     else:
         _save_draws_to_file(draws)
 
@@ -142,19 +152,26 @@ def _save_draws_to_file(draws: List[LottoDraw]) -> None:
     tmp_path.replace(draw_path)
 
 
-def _save_draws_to_mongo(draws: List[LottoDraw]) -> None:
-    collection = get_draw_collection()
+def _save_draws_to_db(draws: List[LottoDraw]) -> None:
     dedup = _deduplicate_draws(draws)
-    operations = [
-        UpdateOne(
-            {"draw_no": draw.draw_no},
-            {"$set": _draw_to_dict(draw)},
-            upsert=True,
-        )
-        for draw in dedup
-    ]
-    if operations:
-        collection.bulk_write(operations, ordered=False)
+    if not dedup:
+        return
+
+    with session_scope() as session:
+        for draw in dedup:
+            record = session.get(LottoDrawORM, draw.draw_no)
+            if record is None:
+                record = LottoDrawORM(
+                    draw_no=draw.draw_no,
+                    draw_date=draw.draw_date,
+                    numbers=draw.numbers,
+                    bonus=draw.bonus,
+                )
+                session.add(record)
+            else:
+                record.draw_date = draw.draw_date
+                record.numbers = draw.numbers
+                record.bonus = draw.bonus
 
 
 def fetch_draw_info(draw_no: int) -> LottoDraw:
@@ -185,9 +202,17 @@ def get_stored_draw(draw_no: int) -> LottoDraw | None:
     """저장소(파일/몽고)에서 특정 회차를 조회."""
 
     settings = get_settings()
-    if settings.use_mongo_storage:
-        document = get_draw_collection().find_one({"draw_no": draw_no})
-        return _dict_to_draw(document) if document else None
+    if settings.use_database_storage:
+        with session_scope() as session:
+            row = session.get(LottoDrawORM, draw_no)
+            if row:
+                return LottoDraw(
+                    draw_no=row.draw_no,
+                    draw_date=row.draw_date,
+                    numbers=list(row.numbers or []),
+                    bonus=row.bonus,
+                )
+        return None
 
     for draw in load_stored_draws():
         if draw.draw_no == draw_no:
@@ -211,9 +236,19 @@ def get_latest_stored_draw() -> LottoDraw | None:
     """저장소에서 가장 최신 회차를 반환."""
 
     settings = get_settings()
-    if settings.use_mongo_storage:
-        document = get_draw_collection().find_one(sort=[("draw_no", DESCENDING)])
-        return _dict_to_draw(document) if document else None
+    if settings.use_database_storage:
+        with session_scope() as session:
+            row = session.scalars(
+                select(LottoDrawORM).order_by(desc(LottoDrawORM.draw_no))
+            ).first()
+        if row:
+            return LottoDraw(
+                draw_no=row.draw_no,
+                draw_date=row.draw_date,
+                numbers=list(row.numbers or []),
+                bonus=row.bonus,
+            )
+        return None
 
     stored = load_stored_draws()
     return stored[-1] if stored else None
@@ -241,7 +276,7 @@ def sync_draw_storage() -> LottoSyncResult:
         missing_draws.append(fetch_draw_info(draw_no))
     missing_draws.append(latest_draw)
 
-    if get_settings().use_mongo_storage:
+    if get_settings().use_database_storage:
         save_draws(missing_draws)
     else:
         save_draws(stored + missing_draws)

@@ -111,7 +111,7 @@ def getLottoDrawByNumber(
     try:
         settings = get_settings()
         draw = None
-        if settings.use_mongo_storage:
+        if settings.use_database_storage:
             draw = get_stored_draw(draw_no)
         if draw is None:
             draw = fetch_draw_info(draw_no)
@@ -157,7 +157,7 @@ def postLottoCheck(
 
     try:
         draw = None
-        if settings.use_mongo_storage:
+        if settings.use_database_storage:
             draw = get_stored_draw(payload.draw_no)
         if draw is None:
             draw = fetch_draw_info(payload.draw_no)

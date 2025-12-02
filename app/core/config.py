@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import quote_plus
 
 
 @dataclass(frozen=True)
@@ -14,6 +15,11 @@ class Settings:
 
     data_dir: Path = Path(os.getenv("LOTTO_DATA_DIR", "data"))
     storage_backend: str = os.getenv("LOTTO_STORAGE_BACKEND", "file")
+    mariadb_host: str = os.getenv("MARIADB_HOST", "127.0.0.1")
+    mariadb_port: int = int(os.getenv("MARIADB_PORT", "3306"))
+    mariadb_user: str = os.getenv("MARIADB_USER", "lotto")
+    mariadb_password: str = os.getenv("MARIADB_PASSWORD", "")
+    mariadb_db_name: str = os.getenv("MARIADB_DB_NAME", "lotto_insec")
     lotto_result_url: str = os.getenv(
         "LOTTO_RESULT_URL",
         "https://dhlottery.co.kr/gameResult.do",
@@ -30,32 +36,6 @@ class Settings:
     cors_allowed_origins: str = os.getenv(
         "LOTTO_ALLOWED_ORIGINS",
         "http://localhost:3000,https://lotto-inspec-front.vercel.app",
-    )
-    mongo_uri: str = os.getenv("MONGO_URI", "")
-    mongo_db_name: str = os.getenv("MONGO_DB_NAME", "lotto-insec")
-    mongo_collection_name: str = os.getenv(
-        "MONGO_COLLECTION_NAME",
-        "lotto-draws",
-    )
-    mongo_analysis_collection_name: str = os.getenv(
-        "MONGO_ANALYSIS_COLLECTION_NAME",
-        "analysis-snapshots",
-    )
-    mongo_user_collection_name: str = os.getenv(
-        "MONGO_USER_COLLECTION_NAME",
-        "users",
-    )
-    mongo_recommendation_collection_name: str = os.getenv(
-        "MONGO_RECOMMENDATION_COLLECTION_NAME",
-        "recommendation_snapshots",
-    )
-    mongo_user_recommendation_collection_name: str = os.getenv(
-        "MONGO_USER_RECOMMENDATION_COLLECTION_NAME",
-        "user_recommendations",
-    )
-    mongo_user_ticket_collection_name: str = os.getenv(
-        "MONGO_USER_TICKET_COLLECTION_NAME",
-        "user_tickets",
     )
     jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "change-me")
     jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
@@ -78,8 +58,26 @@ class Settings:
         ]
 
     @property
-    def use_mongo_storage(self) -> bool:
-        return self.storage_backend.lower() == "mongo"
+    def use_database_storage(self) -> bool:
+        """Return True when MariaDB/MySQL is configured as the storage backend."""
+
+        return self.storage_backend.lower() in {
+            "mariadb",
+            "mysql",
+            "db",
+            "database",
+        }
+
+    @property
+    def mariadb_dsn(self) -> str:
+        """SQLAlchemy-compatible DSN for the configured MariaDB connection."""
+
+        password = quote_plus(self.mariadb_password)
+        user = quote_plus(self.mariadb_user)
+        return (
+            f"mysql+pymysql://{user}:{password}"
+            f"@{self.mariadb_host}:{self.mariadb_port}/{self.mariadb_db_name}"
+        )
 
 
 @lru_cache(maxsize=1)
@@ -88,7 +86,7 @@ def get_settings() -> Settings:
 
     settings = Settings()
     if (
-        not settings.use_mongo_storage
+        not settings.use_database_storage
         and not settings.data_dir.exists()
     ):
         settings.data_dir.mkdir(parents=True, exist_ok=True)

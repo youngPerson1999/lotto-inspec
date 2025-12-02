@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from pymongo.errors import OperationFailure
+from sqlalchemy import select
 
 from app.core.config import get_settings
-from app.core.db import get_mongo_client
+from app.core.db import session_scope
+from app.core.models import UserTicketORM
 from app.services.lotto import (
     evaluate_ticket,
     fetch_draw_info,
@@ -39,28 +40,12 @@ def _latest_known_draw_no() -> Optional[int]:
     return None
 
 
-def _user_ticket_collection():
-    settings = get_settings()
-    if not settings.use_mongo_storage:
-        raise UserTicketError("MongoDB 백엔드에서만 사용자 티켓 저장이 가능합니다.")
-
-    client = get_mongo_client()
-    collection = client[settings.mongo_db_name][
-        settings.mongo_user_ticket_collection_name
-    ]
-    # Allow multiple tickets per draw by removing unique constraints, even if an old
-    # unique index existed.
-    try:
-        index_info = collection.index_information()
-        legacy_idx = "user_id_1_draw_no_1_numbers_1"
-        if legacy_idx in index_info:
-            collection.drop_index(legacy_idx)
-    except OperationFailure:
-        pass
-
-    collection.create_index([("user_id", 1), ("draw_no", 1), ("created_at", -1)])
-    collection.create_index("created_at")
-    return collection
+def _ensure_database_backend() -> None:
+    if not get_settings().use_database_storage:
+        raise UserTicketError(
+            "MariaDB 백엔드에서만 사용자 티켓 저장이 가능합니다. "
+            "LOTTO_STORAGE_BACKEND=mariadb 환경을 설정하세요.",
+        )
 
 
 def save_user_ticket(
@@ -80,8 +65,9 @@ def save_user_ticket(
         )
 
     settings = get_settings()
+    _ensure_database_backend()
     draw = None
-    if settings.use_mongo_storage:
+    if settings.use_database_storage:
         draw = get_stored_draw(draw_no)
     if draw is None:
         draw = fetch_draw_info(draw_no)
@@ -90,26 +76,26 @@ def save_user_ticket(
     evaluation = evaluate_ticket(draw, numbers)
     now = datetime.now(timezone.utc)
 
-    collection = _user_ticket_collection()
-    document = {
-        "user_id": user_id,
-        "draw_no": draw_no,
-        "numbers": evaluation["numbers"],
-        "evaluation": evaluation,
-        "created_at": now,
-        "updated_at": now,
-    }
-    inserted = collection.insert_one(document)
-    document["_id"] = inserted.inserted_id
+    with session_scope() as session:
+        record = UserTicketORM(
+            user_id=user_id,
+            draw_no=draw_no,
+            numbers=evaluation["numbers"],
+            evaluation=evaluation,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(record)
+        session.flush()
 
-    return {
-        "id": str(document["_id"]),
-        "userId": document["user_id"],
-        "draw_no": document["draw_no"],
-        "numbers": document["numbers"],
-        "created_at": document.get("created_at"),
-        "evaluation": document.get("evaluation", evaluation),
-    }
+        return {
+            "id": str(record.id),
+            "userId": record.user_id,
+            "draw_no": record.draw_no,
+            "numbers": record.numbers,
+            "created_at": record.created_at,
+            "evaluation": record.evaluation,
+        }
 
 
 __all__ = ["save_user_ticket", "get_user_tickets", "UserTicketError"]
@@ -119,19 +105,25 @@ def get_user_tickets(user_id: str) -> List[Dict[str, object]]:
     if not user_id:
         raise UserTicketError("userId가 비어 있습니다.")
 
-    collection = _user_ticket_collection()
-    cursor = collection.find({"user_id": user_id}).sort("created_at", -1)
+    _ensure_database_backend()
+
+    with session_scope() as session:
+        rows = session.scalars(
+            select(UserTicketORM)
+            .where(UserTicketORM.user_id == user_id)
+            .order_by(UserTicketORM.created_at.desc())
+        ).all()
 
     results: List[Dict[str, object]] = []
-    for document in cursor:
+    for row in rows:
         results.append(
             {
-                "id": str(document["_id"]),
-                "userId": document["user_id"],
-                "draw_no": document["draw_no"],
-                "numbers": document["numbers"],
-                "created_at": document.get("created_at"),
-                "evaluation": document.get("evaluation", {}),
+                "id": str(row.id),
+                "userId": row.user_id,
+                "draw_no": row.draw_no,
+                "numbers": row.numbers,
+                "created_at": row.created_at,
+                "evaluation": row.evaluation or {},
             }
         )
     return results

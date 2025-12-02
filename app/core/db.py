@@ -1,65 +1,100 @@
-"""MongoDB client helpers."""
+"""MariaDB connection helpers built on SQLAlchemy."""
 
 from __future__ import annotations
 
-from pymongo import MongoClient
-from pymongo.collection import Collection
-from pymongo.errors import CollectionInvalid
+from contextlib import contextmanager
+from typing import Generator
+
+from sqlalchemy import create_engine, func, select, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import get_settings
 
-_client: MongoClient | None = None
+
+class Base(DeclarativeBase):
+    """Declarative base shared by the SQLAlchemy models."""
 
 
-def get_mongo_client() -> MongoClient:
-    """Return a singleton MongoClient instance."""
+_engine: Engine | None = None
+_session_factory: sessionmaker | None = None
 
-    global _client  # noqa: PLW0603  # retained to cache the client
-    if _client is not None:
-        return _client
+
+def _initialize_engine() -> None:
+    """Instantiate the singleton engine/session factory if needed."""
+
+    global _engine, _session_factory  # noqa: PLW0603  # module-level cache
+    if _engine is not None and _session_factory is not None:
+        return
 
     settings = get_settings()
-    if not settings.mongo_uri:
+    if not settings.use_database_storage:
         raise RuntimeError(
-            "MONGO_URI must be set when LOTTO_STORAGE_BACKEND=mongo.",
+            "LOTTO_STORAGE_BACKEND must be set to 'mariadb' "
+            "to use the database backend.",
         )
 
-    _client = MongoClient(settings.mongo_uri)
-    return _client
+    engine = create_engine(
+        settings.mariadb_dsn,
+        pool_pre_ping=True,
+        future=True,
+    )
+    _engine = engine
+    _session_factory = sessionmaker(
+        bind=engine,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+
+    # Import models lazily so their metadata is registered before create_all.
+    from app.core import models  # noqa: F401
+
+    Base.metadata.create_all(bind=engine)
 
 
-def _ensure_collection_exists() -> Collection:
-    """Create 컬렉션/인덱스를 보장 후 핸들을 반환."""
+def get_engine() -> Engine:
+    """Return the singleton SQLAlchemy engine."""
 
-    settings = get_settings()
-    client = get_mongo_client()
-    db = client[settings.mongo_db_name]
-    coll_name = settings.mongo_collection_name
+    _initialize_engine()
+    assert _engine is not None  # narrow type for mypy/pyright
+    return _engine
 
+
+def get_session() -> Session:
+    """Return a transactional Session bound to the global engine."""
+
+    _initialize_engine()
+    assert _session_factory is not None
+    return _session_factory()
+
+
+@contextmanager
+def session_scope() -> Generator[Session, None, None]:
+    """Provide a transactional scope for DB operations."""
+
+    session = get_session()
     try:
-        if coll_name not in db.list_collection_names():
-            db.create_collection(coll_name)
-    except CollectionInvalid:
-        pass  # already exists
-
-    collection = db[coll_name]
-    collection.create_index("draw_no", unique=True)
-    return collection
-
-
-def get_draw_collection() -> Collection:
-    """Return the MongoDB collection storing Lotto draw documents."""
-
-    return _ensure_collection_exists()
+        yield session
+        session.commit()
+    except Exception:  # noqa: BLE001  # bubble up after rollback
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
-def ping_mongo() -> tuple[bool, int | None]:
-    """Lightweight 연결 점검: ping 후 추정 도큐먼트 수를 반환."""
+def ping_database() -> tuple[bool, int | None]:
+    """Run a lightweight health check against MariaDB."""
 
-    collection = get_draw_collection()
-    collection.database.client.admin.command("ping")
-    total = collection.estimated_document_count()
-    return True, int(total)
+    _initialize_engine()
+    from app.core.models import LottoDrawORM
+
+    with session_scope() as session:
+        session.execute(text("SELECT 1"))
+        total = session.scalar(
+            select(func.count()).select_from(LottoDrawORM)
+        )
+    return True, int(total or 0)
 
 
-__all__ = ["get_draw_collection", "get_mongo_client", "ping_mongo"]
+__all__ = ["Base", "get_engine", "get_session", "session_scope", "ping_database"]

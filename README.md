@@ -24,7 +24,7 @@ The repo now ships with a production-ready layout for Docker/Koyeb deployments.
    uvicorn app.main:app --reload
    ```
 
-4. Open http://localhost:8000/docs to use the interactive Swagger UI. GET 분석 엔드포인트는 MongoDB에 저장된 최신 스냅샷만 조회하며, POST 요청을 보내야 새 분석을 실행하고 저장합니다.  
+4. Open http://localhost:8000/docs to use the interactive Swagger UI. GET 분석 엔드포인트는 MariaDB에 저장된 최신 스냅샷만 조회하며, POST 요청을 보내야 새 분석을 실행하고 저장합니다.  
    - `GET /lotto/latest` fetches the newest Lotto draw (currently up to the 1197th draw on Nov 15, 2025) and returns the winning numbers plus bonus ball.  
    - `GET /lotto/{draw_no}` fetches a specific 회차 (e.g., `GET /lotto/1197`).  
    - `POST /lotto/sync` downloads any missing draws (e.g., 1001~1197) and appends them to `data/lotto_draws.json`, returning a summary of what was added.
@@ -35,7 +35,7 @@ The repo now ships with a production-ready layout for Docker/Koyeb deployments.
    - `POST /analysis/distribution` compares 합계/간격 분포 전체가 시뮬레이션한 이상적 분포와 얼마나 차이나는지를 χ² + KS 통계로 보여줍니다 (계산 비용 때문에 POST 전용).
    - `GET /analysis/randomness` runs a lightweight NIST-style randomness suite on 비트열 인코딩(번호 존재 여부/이진 표현 등) 후 각 검정의 p-value를 제공합니다. (POST로 재계산 가능)
    - `GET /recommendations?strategy=frequency_hot` 등으로 랜덤/분석 기반 추천 조합을 받을 수 있습니다 (`random`, `frequency_hot`, `frequency_cold`, `balanced_parity` 지원).
-   - `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`로 JWT 기반 로그인/토큰 갱신을 사용할 수 있습니다. (MongoDB 필수)
+   - `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`로 JWT 기반 로그인/토큰 갱신을 사용할 수 있습니다. (MariaDB 필수)
 
 ## Running with Docker
 
@@ -75,31 +75,41 @@ Set `LOTTO_DATA_DIR` (inside `.env`) to a mounted volume if you need the synchro
 | `LOTTO_USER_AGENT`      | `lotto-insec/1.0 (...)` | Custom User-Agent header for outbound requests.                                            |
 | `LOTTO_REQUEST_TIMEOUT` | `10` seconds            | Default HTTP timeout used by the crawler.                                                  |
 | `LOTTO_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated list of Origins allowed via CORS.                                          |
-| `LOTTO_STORAGE_BACKEND` | `file`                  | Set to `mongo` to persist draws inside MongoDB instead of `data/lotto_draws.json`.         |
-| `MONGO_URI`             | _(unset)_               | Connection string used when `LOTTO_STORAGE_BACKEND=mongo` (e.g., Atlas SRV URI).           |
-| `MONGO_DB_NAME`         | `lotto-insec`           | Database name for storing draws.                                                           |
-| `MONGO_COLLECTION_NAME` | `lotto-draws`           | Collection name for storing draws.                                                         |
-| `MONGO_ANALYSIS_COLLECTION_NAME` | `analysis_snapshots` | Collection name that stores cached 분석 결과 스냅샷. |
-| `MONGO_USER_COLLECTION_NAME` | `users` | Collection used for auth 사용자 문서. |
-| `MONGO_RECOMMENDATION_COLLECTION_NAME` | `recommendation_snapshots` | Recommendation 캐시를 저장할 Mongo 컬렉션. |
+| `LOTTO_STORAGE_BACKEND` | `file`                  | Set to `mariadb` to persist draws in MariaDB instead of `data/lotto_draws.json`.           |
+| `MARIADB_HOST`          | `127.0.0.1`             | MariaDB hostname (set to `localhost` when running locally).                                |
+| `MARIADB_PORT`          | `3306`                  | MariaDB port.                                                                              |
+| `MARIADB_USER`          | `lotto`                 | MariaDB user with privileges on the target database.                                       |
+| `MARIADB_PASSWORD`      | _(unset)_               | Password for `MARIADB_USER`.                                                               |
+| `MARIADB_DB_NAME`       | `lotto_insec`           | MariaDB database used for draws, analysis snapshots, auth, and recommendations.            |
 | `JWT_SECRET_KEY` | `change-me` | JWT 서명 비밀 키 (프로덕션에서는 안전한 값으로 변경). |
 | `JWT_ALGORITHM` | `HS256` | JWT 서명 알고리즘. |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access Token 만료 시간(분). |
 | `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | `14` | Refresh Token 만료 시간(일). |
 | `PORT`                  | `8000`                  | Honored by the Dockerfile/Procfile for platforms that inject a port (Koyeb, Render, etc.). |
 
-### Using MongoDB for draw storage
+### Using MariaDB for draw storage
 
-1. Create a `.env` file in the project root (already ignored by Git) and add:
+1. Provision a MariaDB instance (e.g., `brew install mariadb` + `brew services start mariadb`) and create the target database/user:
 
-   ```bash
-   LOTTO_STORAGE_BACKEND=mongo
-   MONGO_URI="mongodb+srv://<user>:<password>@cluster0.mongodb.net/?retryWrites=true&w=majority"
-   MONGO_DB_NAME=lotto-insec
-   MONGO_COLLECTION_NAME=lotto-draws
+   ```sql
+   CREATE DATABASE lotto_insec CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   CREATE USER 'lotto'@'%' IDENTIFIED BY 'super-secret';
+   GRANT ALL PRIVILEGES ON lotto_insec.* TO 'lotto'@'%';
+   FLUSH PRIVILEGES;
    ```
 
-2. Export the variables before starting the server locally:
+2. Create a `.env` file (already git-ignored) with the connection details:
+
+   ```bash
+   LOTTO_STORAGE_BACKEND=mariadb
+   MARIADB_HOST=127.0.0.1
+   MARIADB_PORT=3306
+   MARIADB_USER=lotto
+   MARIADB_PASSWORD=super-secret
+   MARIADB_DB_NAME=lotto_insec
+   ```
+
+3. Export the variables before starting the server locally (or pass them through Docker/Koyeb):
 
    ```bash
    set -a
@@ -108,9 +118,7 @@ Set `LOTTO_DATA_DIR` (inside `.env`) to a mounted volume if you need the synchro
    uvicorn app.main:app --reload
    ```
 
-   For Docker/Koyeb, either pass the variables with `-e` / `env` entries or mount the `.env` file via `--env-file`.
-
-With the MongoDB backend enabled, `/lotto/sync` upserts draws into the configured collection while `/analysis` reads from the same data source.
+With the MariaDB backend enabled, `/lotto/sync` upserts draws into SQL tables while `/analysis`, `/auth`, `/recommendations`, and `/lotto/tickets` query the same database.
 
 ## Project Layout
 
