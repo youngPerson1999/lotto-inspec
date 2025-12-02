@@ -35,7 +35,7 @@ class Settings:
     request_timeout: float = float(os.getenv("LOTTO_REQUEST_TIMEOUT", "10"))
     cors_allowed_origins: str = os.getenv(
         "LOTTO_ALLOWED_ORIGINS",
-        "http://localhost:3000,https://lotto-inspec-front.vercel.app",
+        "http://localhost:3000,https://lotto-inspec-front.vercel.app,https://www.lotto-inspec.com",
     )
     jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "change-me")
     jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
