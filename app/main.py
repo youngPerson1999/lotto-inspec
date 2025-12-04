@@ -1,10 +1,13 @@
 """FastAPI application entrypoint."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
 from app.core.config import get_settings
+from app.core.sql_runner import ensure_database_tables
 
 tags_metadata = [
     {
@@ -26,6 +29,14 @@ tags_metadata = [
     },
 ]
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Ensure necessary tables exist before serving traffic."""
+
+    ensure_database_tables()
+    yield
+
+
 app = FastAPI(
     title="Lotto Insec API",
     description=(
@@ -34,6 +45,7 @@ app = FastAPI(
     ),
     version="0.2.0",
     openapi_tags=tags_metadata,
+    lifespan=lifespan,
 )
 
 app.include_router(api_router)
