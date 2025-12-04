@@ -24,7 +24,9 @@ The repo now ships with a production-ready layout for Docker/Koyeb deployments.
    uvicorn app.main:app --reload
    ```
 
-4. Open http://localhost:8000/docs to use the interactive Swagger UI. GET 분석 엔드포인트는 MariaDB에 저장된 최신 스냅샷만 조회하며, POST 요청을 보내야 새 분석을 실행하고 저장합니다.  
+4. The server automatically schedules a background job that synchronizes the latest Lotto draw every Saturday at 21:00 (Asia/Seoul). Adjust the schedule via the `LOTTO_SCHEDULER_*` env vars if needed.
+
+5. Open http://localhost:8000/docs to use the interactive Swagger UI. GET 분석 엔드포인트는 MariaDB에 저장된 최신 스냅샷만 조회하며, POST 요청을 보내야 새 분석을 실행하고 저장합니다.  
    - `GET /lotto/latest` fetches the newest Lotto draw (currently up to the 1197th draw on Nov 15, 2025) and returns the winning numbers plus bonus ball.  
    - `GET /lotto/{draw_no}` fetches a specific 회차 (e.g., `GET /lotto/1197`).  
    - `POST /lotto/sync` downloads any missing draws (e.g., 1001~1197) and appends them to `data/lotto_draws.json`, returning a summary of what was added.
@@ -86,6 +88,10 @@ Set `LOTTO_DATA_DIR` (inside `.env`) to a mounted volume if you need the synchro
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access Token 만료 시간(분). |
 | `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | `14` | Refresh Token 만료 시간(일). |
 | `PORT`                  | `8000`                  | Honored by the Dockerfile/Procfile for platforms that inject a port (Koyeb, Render, etc.). |
+| `LOTTO_SCHEDULER_TZ`    | `Asia/Seoul`            | Timezone used by the weekly lotto sync scheduler.                                          |
+| `LOTTO_SCHEDULER_DOW`   | `sat`                   | Day-of-week specifier (`apscheduler` cron syntax) for the sync job.                        |
+| `LOTTO_SCHEDULER_HOUR`  | `21`                    | Hour (24h) when the sync job runs.                                                         |
+| `LOTTO_SCHEDULER_MINUTE`| `0`                     | Minute when the sync job runs.                                                             |
 
 ### Using MariaDB for draw storage
 

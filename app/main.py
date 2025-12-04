@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
 from app.core.config import get_settings
+from app.core.scheduler import start_scheduler, stop_scheduler
 from app.core.sql_runner import ensure_database_tables
 
 tags_metadata = [
@@ -34,7 +35,11 @@ async def lifespan(_: FastAPI):
     """Ensure necessary tables exist before serving traffic."""
 
     ensure_database_tables()
-    yield
+    start_scheduler()
+    try:
+        yield
+    finally:
+        stop_scheduler()
 
 
 app = FastAPI(

@@ -49,6 +49,10 @@ class Settings:
     jwt_refresh_token_exp_days: int = int(
         os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "14")
     )
+    scheduler_timezone: str = os.getenv("LOTTO_SCHEDULER_TZ", "Asia/Seoul")
+    scheduler_day_of_week: str = os.getenv("LOTTO_SCHEDULER_DOW", "sat")
+    scheduler_hour: int = int(os.getenv("LOTTO_SCHEDULER_HOUR", "21"))
+    scheduler_minute: int = int(os.getenv("LOTTO_SCHEDULER_MINUTE", "0"))
     @property
     def draw_storage_path(self) -> Path:
         return self.data_dir / "lotto_draws.json"
