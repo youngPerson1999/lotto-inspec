@@ -24,7 +24,7 @@ The repo now ships with a production-ready layout for Docker/Koyeb deployments.
    uvicorn app.main:app --reload
    ```
 
-4. The server automatically schedules a background job that synchronizes the latest Lotto draw every Saturday at 21:00 (Asia/Seoul). Adjust the schedule via the `LOTTO_SCHEDULER_*` env vars if needed.
+4. The server automatically schedules background jobs: draw synchronization every Saturday at 21:00 (Asia/Seoul) and analysis snapshot refreshes every Sunday 00:00. Adjust the schedule via `LOTTO_SCHEDULER_*` / `LOTTO_ANALYSIS_SCHEDULER_*` env vars if needed.
 
 5. Open http://localhost:8000/docs to use the interactive Swagger UI. GET 분석 엔드포인트는 MariaDB에 저장된 최신 스냅샷만 조회하며, POST 요청을 보내야 새 분석을 실행하고 저장합니다.  
    - `GET /lotto/latest` fetches the newest Lotto draw (currently up to the 1197th draw on Nov 15, 2025) and returns the winning numbers plus bonus ball.  
@@ -92,6 +92,13 @@ Set `LOTTO_DATA_DIR` (inside `.env`) to a mounted volume if you need the synchro
 | `LOTTO_SCHEDULER_DOW`   | `sat`                   | Day-of-week specifier (`apscheduler` cron syntax) for the sync job.                        |
 | `LOTTO_SCHEDULER_HOUR`  | `21`                    | Hour (24h) when the sync job runs.                                                         |
 | `LOTTO_SCHEDULER_MINUTE`| `0`                     | Minute when the sync job runs.                                                             |
+| `LOTTO_ANALYSIS_SCHEDULER_TZ` | `Asia/Seoul`     | Timezone for the weekly analysis refresh (defaults to the draw scheduler TZ).              |
+| `LOTTO_ANALYSIS_SCHEDULER_DOW`| `sun`            | Day-of-week for the automated analysis refresh.                                            |
+| `LOTTO_ANALYSIS_SCHEDULER_HOUR`| `0`             | Hour (24h) for the automated analysis refresh.                                             |
+| `LOTTO_ANALYSIS_SCHEDULER_MINUTE`| `0`           | Minute for the automated analysis refresh.                                                 |
+| `LOTTO_ANALYSIS_RANDOMNESS_ENCODING`| `presence` | Encoding used by the scheduled randomness suite run.                                       |
+| `LOTTO_ANALYSIS_RANDOMNESS_BLOCK_SIZE`| `128`    | Block size for the scheduled randomness suite.                                             |
+| `LOTTO_ANALYSIS_RANDOMNESS_SERIAL_BLOCK`| `2`     | Serial test block length for the scheduled randomness suite.                               |
 
 ### Using MariaDB for draw storage
 

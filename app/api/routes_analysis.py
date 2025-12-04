@@ -2,18 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from analysis import (
-    dependency_summary,
-    distribution_summary,
-    pattern_analysis_summary,
-    randomness_suite_summary,
-    sum_runs_summary,
-    summarize_draws,
-)
+from analysis import distribution_summary
 from app.models.dto import (
     DependencyAnalysisResponse,
     DependencyAnalysisSnapshotResponse,
@@ -27,9 +20,14 @@ from app.models.dto import (
     SumRunsTestResponse,
     SumRunsTestSnapshotResponse,
 )
-from app.services.analysis_storage import (
-    get_latest_analysis_snapshot,
-    save_analysis_snapshot,
+from app.services.analysis_storage import get_latest_analysis_snapshot, save_analysis_snapshot
+from app.services.analysis_tasks import (
+    analysis_key,
+    refresh_dependency_analysis,
+    refresh_lotto_summary,
+    refresh_pattern_analysis,
+    refresh_randomness_suite,
+    refresh_runs_sum_analysis,
 )
 from app.services.auth import require_access_token
 
@@ -38,13 +36,6 @@ router = APIRouter(
     tags=["analysis"],
     dependencies=[Depends(require_access_token)],
 )
-
-
-def _analysis_key(base: str, **params: Any) -> str:
-    if not params:
-        return base
-    suffix = ",".join(f"{key}={params[key]}" for key in sorted(params))
-    return f"{base}|{suffix}"
 
 
 def _load_snapshot_or_404(name: str) -> Dict[str, Any]:
@@ -64,43 +55,30 @@ def _load_snapshot_or_404(name: str) -> Dict[str, Any]:
     return snapshot
 
 
+SnapshotRefresher = Callable[[], object]
+
+
+def _ensure_snapshot(name: str, refresher: SnapshotRefresher) -> Dict[str, Any]:
+    try:
+        return _load_snapshot_or_404(name)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        try:
+            refresher()
+        except ValueError as refresh_exc:
+            raise HTTPException(
+                status_code=400,
+                detail={"message": str(refresh_exc)},
+            ) from refresh_exc
+        return _load_snapshot_or_404(name)
+
+
 def _store_snapshot(name: str, payload: Dict[str, Any], metadata: Dict[str, Any] | None = None) -> None:
     try:
         save_analysis_snapshot(name, payload, metadata=metadata)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail={"message": str(exc)}) from exc
-
-
-def _build_lotto_analysis_response(summary: Dict[str, Any]) -> LottoAnalysisResponse:
-    chi_square = summary["chi_square"]
-    runs = summary["runs_test"]
-    return LottoAnalysisResponse(
-        total_draws=summary["total_draws"],
-        chi_square={
-            "statistic": chi_square.statistic,
-            "p_value": chi_square.p_value,
-            "observed": chi_square.observed,
-            "expected": chi_square.expected,
-        },
-        runs_test={
-            "runs": runs.runs,
-            "expected_runs": runs.expected_runs,
-            "z_score": runs.z_score,
-            "p_value": runs.p_value,
-            "total_observations": runs.total_observations,
-        },
-        gap_histogram=summary["gap_histogram"],
-        frequency=summary["frequency"],
-    )
-
-
-def _serialize_pattern_result(result):
-    return {
-        "statistic": result.statistic,
-        "p_value": result.p_value,
-        "observed": result.observed,
-        "expected": result.expected,
-    }
 
 
 def _serialize_distribution_result(result):
@@ -118,47 +96,13 @@ def _serialize_distribution_result(result):
     }
 
 
-def _run_randomness_suite_analysis(
-    *,
-    encoding: str,
-    block_size: int,
-    serial_block: int,
-) -> RandomnessSuiteResponse:
-    try:
-        summary = randomness_suite_summary(
-            encoding=encoding,
-            block_size=block_size,
-            serial_block=serial_block,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
-
-    response = RandomnessSuiteResponse(**summary)
-    key = _analysis_key(
-        "randomness",
-        encoding=encoding,
-        block_size=block_size,
-        serial_block=serial_block,
-    )
-    _store_snapshot(
-        key,
-        response.model_dump(),
-        metadata={
-            "encoding": encoding,
-            "block_size": block_size,
-            "serial_block": serial_block,
-        },
-    )
-    return response
-
-
 @router.get(
     "",
     response_model=LottoAnalysisSnapshotResponse,
     summary="저장된 회차 기반 통계 분석 결과 조회",
 )
 def getLottoAnalysis() -> LottoAnalysisSnapshotResponse:
-    snapshot = _load_snapshot_or_404("summary")
+    snapshot = _ensure_snapshot("summary", refresh_lotto_summary)
     return LottoAnalysisSnapshotResponse(
         draw_no=snapshot["max_draw_no"],
         result=LottoAnalysisResponse(**snapshot["result"]),
@@ -172,12 +116,10 @@ def getLottoAnalysis() -> LottoAnalysisSnapshotResponse:
 )
 def postLottoAnalysis() -> LottoAnalysisResponse:
     try:
-        summary = summarize_draws()
+        response = refresh_lotto_summary()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
 
-    response = _build_lotto_analysis_response(summary)
-    _store_snapshot("summary", response.model_dump())
     return response
 
 
@@ -187,7 +129,7 @@ def postLottoAnalysis() -> LottoAnalysisResponse:
     summary="연속 회차 의존성 검정 결과",
 )
 def getLottoDependencyAnalysis() -> DependencyAnalysisSnapshotResponse:
-    snapshot = _load_snapshot_or_404("dependency")
+    snapshot = _ensure_snapshot("dependency", refresh_dependency_analysis)
     return DependencyAnalysisSnapshotResponse(
         draw_no=snapshot["max_draw_no"],
         result=DependencyAnalysisResponse(**snapshot["result"]),
@@ -201,12 +143,10 @@ def getLottoDependencyAnalysis() -> DependencyAnalysisSnapshotResponse:
 )
 def postLottoDependencyAnalysis() -> DependencyAnalysisResponse:
     try:
-        summary = dependency_summary()
+        response = refresh_dependency_analysis()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
 
-    response = DependencyAnalysisResponse(**summary)
-    _store_snapshot("dependency", response.model_dump())
     return response
 
 
@@ -216,7 +156,7 @@ def postLottoDependencyAnalysis() -> DependencyAnalysisResponse:
     summary="회차 합계 기반 런 검정",
 )
 def getLottoSumRunsTest() -> SumRunsTestSnapshotResponse:
-    snapshot = _load_snapshot_or_404("runs_sum")
+    snapshot = _ensure_snapshot("runs_sum", refresh_runs_sum_analysis)
     return SumRunsTestSnapshotResponse(
         draw_no=snapshot["max_draw_no"],
         result=SumRunsTestResponse(**snapshot["result"]),
@@ -230,19 +170,10 @@ def getLottoSumRunsTest() -> SumRunsTestSnapshotResponse:
 )
 def postLottoSumRunsTest() -> SumRunsTestResponse:
     try:
-        result = sum_runs_summary()
+        response = refresh_runs_sum_analysis()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
 
-    response = SumRunsTestResponse(
-        runs=result.runs,
-        expected_runs=result.expected_runs,
-        z_score=result.z_score,
-        p_value=result.p_value,
-        total_observations=result.total_observations,
-        median_threshold=result.median_threshold,
-    )
-    _store_snapshot("runs_sum", response.model_dump())
     return response
 
 
@@ -252,7 +183,7 @@ def postLottoSumRunsTest() -> SumRunsTestResponse:
     summary="홀짝/저고/끝자리 패턴 χ² 검정",
 )
 def getLottoPatternAnalysis() -> PatternAnalysisSnapshotResponse:
-    snapshot = _load_snapshot_or_404("patterns")
+    snapshot = _ensure_snapshot("patterns", refresh_pattern_analysis)
     return PatternAnalysisSnapshotResponse(
         draw_no=snapshot["max_draw_no"],
         result=PatternAnalysisResponse(**snapshot["result"]),
@@ -266,16 +197,10 @@ def getLottoPatternAnalysis() -> PatternAnalysisSnapshotResponse:
 )
 def postLottoPatternAnalysis() -> PatternAnalysisResponse:
     try:
-        summary = pattern_analysis_summary()
+        response = refresh_pattern_analysis()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
 
-    response = PatternAnalysisResponse(
-        parity=_serialize_pattern_result(summary["parity"]),
-        low_high=_serialize_pattern_result(summary["low_high"]),
-        last_digit=_serialize_pattern_result(summary["last_digit"]),
-    )
-    _store_snapshot("patterns", response.model_dump())
     return response
 
 
@@ -301,7 +226,7 @@ def postLottoDistributionAnalysis(
         sum=_serialize_distribution_result(summary["sum"]),
         gap=_serialize_distribution_result(summary["gap"]),
     )
-    key = _analysis_key("distribution", sample_size=sample_size)
+    key = analysis_key("distribution", sample_size=sample_size)
     _store_snapshot(
         key,
         response.model_dump(),
@@ -333,7 +258,7 @@ def getLottoRandomnessSuite(
         description="Serial test block length m",
     ),
 ) -> RandomnessSuiteSnapshotResponse:
-    key = _analysis_key(
+    key = analysis_key(
         "randomness",
         encoding=encoding,
         block_size=block_size,
@@ -344,11 +269,14 @@ def getLottoRandomnessSuite(
     except HTTPException as exc:
         if exc.status_code != 404:
             raise
-        _run_randomness_suite_analysis(
-            encoding=encoding,
-            block_size=block_size,
-            serial_block=serial_block,
-        )
+        try:
+            refresh_randomness_suite(
+                encoding=encoding,
+                block_size=block_size,
+                serial_block=serial_block,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
         snapshot = _load_snapshot_or_404(key)
     return RandomnessSuiteSnapshotResponse(
         draw_no=snapshot["max_draw_no"],
@@ -379,12 +307,14 @@ def postLottoRandomnessSuite(
         description="Serial test block length m",
     ),
 ) -> RandomnessSuiteResponse:
-    response = _run_randomness_suite_analysis(
-        encoding=encoding,
-        block_size=block_size,
-        serial_block=serial_block,
-    )
-    return response
+    try:
+        return refresh_randomness_suite(
+            encoding=encoding,
+            block_size=block_size,
+            serial_block=serial_block,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
 
 
 __all__ = ["router"]

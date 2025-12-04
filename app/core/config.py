@@ -53,6 +53,30 @@ class Settings:
     scheduler_day_of_week: str = os.getenv("LOTTO_SCHEDULER_DOW", "sat")
     scheduler_hour: int = int(os.getenv("LOTTO_SCHEDULER_HOUR", "21"))
     scheduler_minute: int = int(os.getenv("LOTTO_SCHEDULER_MINUTE", "0"))
+    analysis_scheduler_timezone: str = os.getenv(
+        "LOTTO_ANALYSIS_SCHEDULER_TZ",
+        os.getenv("LOTTO_SCHEDULER_TZ", "Asia/Seoul"),
+    )
+    analysis_scheduler_day_of_week: str = os.getenv(
+        "LOTTO_ANALYSIS_SCHEDULER_DOW",
+        "sun",
+    )
+    analysis_scheduler_hour: int = int(
+        os.getenv("LOTTO_ANALYSIS_SCHEDULER_HOUR", "0")
+    )
+    analysis_scheduler_minute: int = int(
+        os.getenv("LOTTO_ANALYSIS_SCHEDULER_MINUTE", "0")
+    )
+    analysis_randomness_encoding: str = os.getenv(
+        "LOTTO_ANALYSIS_RANDOMNESS_ENCODING",
+        "presence",
+    )
+    analysis_randomness_block_size: int = int(
+        os.getenv("LOTTO_ANALYSIS_RANDOMNESS_BLOCK_SIZE", "128")
+    )
+    analysis_randomness_serial_block: int = int(
+        os.getenv("LOTTO_ANALYSIS_RANDOMNESS_SERIAL_BLOCK", "2")
+    )
     @property
     def draw_storage_path(self) -> Path:
         return self.data_dir / "lotto_draws.json"
