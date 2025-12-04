@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+import logging
+
 from analysis import (
     dependency_summary,
     pattern_analysis_summary,
@@ -19,6 +21,8 @@ from app.models.dto import (
     SumRunsTestResponse,
 )
 from app.services.analysis_storage import save_analysis_snapshot
+
+logger = logging.getLogger(__name__)
 
 
 def analysis_key(base: str, **params: Any) -> str:
@@ -61,20 +65,25 @@ def _serialize_pattern_result(result):
 
 
 def refresh_lotto_summary() -> LottoAnalysisResponse:
+    logger.info("Refreshing lotto summary analysis snapshot...")
     summary = summarize_draws()
     response = _build_lotto_analysis_response(summary)
     save_analysis_snapshot("summary", response.model_dump())
+    logger.info("Lotto summary snapshot updated (total_draws=%s)", response.total_draws)
     return response
 
 
 def refresh_dependency_analysis() -> DependencyAnalysisResponse:
+    logger.info("Refreshing dependency analysis snapshot...")
     summary = dependency_summary()
     response = DependencyAnalysisResponse(**summary)
     save_analysis_snapshot("dependency", response.model_dump())
+    logger.info("Dependency snapshot updated")
     return response
 
 
 def refresh_runs_sum_analysis() -> SumRunsTestResponse:
+    logger.info("Refreshing sum runs analysis snapshot...")
     result = sum_runs_summary()
     response = SumRunsTestResponse(
         runs=result.runs,
@@ -85,10 +94,12 @@ def refresh_runs_sum_analysis() -> SumRunsTestResponse:
         median_threshold=result.median_threshold,
     )
     save_analysis_snapshot("runs_sum", response.model_dump())
+    logger.info("Sum runs snapshot updated (runs=%s)", response.runs)
     return response
 
 
 def refresh_pattern_analysis() -> PatternAnalysisResponse:
+    logger.info("Refreshing pattern analysis snapshot...")
     summary = pattern_analysis_summary()
     response = PatternAnalysisResponse(
         parity=_serialize_pattern_result(summary["parity"]),
@@ -96,6 +107,7 @@ def refresh_pattern_analysis() -> PatternAnalysisResponse:
         last_digit=_serialize_pattern_result(summary["last_digit"]),
     )
     save_analysis_snapshot("patterns", response.model_dump())
+    logger.info("Pattern analysis snapshot updated")
     return response
 
 
@@ -105,6 +117,12 @@ def refresh_randomness_suite(
     block_size: int,
     serial_block: int,
 ) -> RandomnessSuiteResponse:
+    logger.info(
+        "Refreshing randomness suite snapshot (encoding=%s block=%s serial=%s)...",
+        encoding,
+        block_size,
+        serial_block,
+    )
     summary = randomness_suite_summary(
         encoding=encoding,
         block_size=block_size,
@@ -126,6 +144,7 @@ def refresh_randomness_suite(
             "serial_block": serial_block,
         },
     )
+    logger.info("Randomness suite snapshot updated")
     return response
 
 
