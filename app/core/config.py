@@ -8,6 +8,10 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote_plus
 
+from app.core.env_loader import load_env_file
+
+load_env_file()
+
 
 @dataclass(frozen=True)
 class Settings:

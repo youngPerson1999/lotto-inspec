@@ -3,22 +3,22 @@
 FastAPI server that downloads Lotto draw data from DhLottery, exposes health/lotto endpoints, and enables statistical analysis.  
 The repo now ships with a production-ready layout for Docker/Koyeb deployments.
 
-## Getting Started
+## Getting Started (no Docker required)
 
-1. Create and activate a virtual environment (recommended):
+1. Create and activate an isolated virtual environment:
 
    ```bash
    python -m venv .venv
    source .venv/bin/activate
    ```
 
-2. Install dependencies:
+2. Install the backend dependencies into that environment:
 
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Start the server:
+3. Launch the FastAPI server with auto-reload (listens on http://127.0.0.1:8000 by default):
 
    ```bash
    uvicorn app.main:app --reload
