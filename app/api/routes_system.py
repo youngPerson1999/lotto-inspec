@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.core.config import get_settings
 from app.core.db import ping_database
-from app.schemas import HealthResponse, StorageHealthResponse
+from app.models.dto import HealthResponse, StorageHealthResponse
 from app.services.lotto import load_stored_draws
 
 router = APIRouter(tags=["system"])

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.schemas import (
+from app.models.dto import (
     MessageResponse,
     TokenPairResponse,
     UserLoginRequest,

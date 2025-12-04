@@ -7,7 +7,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Path
 
 from app.core.config import get_settings
-from app.schemas import (
+from app.models.dto import (
     RecommendationEvaluationRequest,
     RecommendationEvaluationResult,
     UserTicketRequest,

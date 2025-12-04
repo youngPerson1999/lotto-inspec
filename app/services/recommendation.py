@@ -11,7 +11,7 @@ from sqlalchemy import and_, select
 from analysis import calculate_number_frequencies
 from app.core.config import get_settings
 from app.core.db import session_scope
-from app.core.models import RecommendationSnapshotORM, UserRecommendationORM
+from app.models.tables import RecommendationSnapshotORM, UserRecommendationORM
 from app.services.lotto import (
     LottoDraw,
     evaluate_ticket,

@@ -12,8 +12,8 @@ from sqlalchemy import desc, select
 
 from app.core.config import get_settings
 from app.core.db import session_scope
-from app.core.models import LottoDrawORM
 from app.core.http_client import fetch_text, fetch_url
+from app.models.tables import LottoDrawORM
 
 
 @dataclass

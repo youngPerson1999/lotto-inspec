@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.schemas import (
+from app.models.dto import (
     RecommendationBatchResponse,
     RecommendationResponse,
     RecommendationStrategy,

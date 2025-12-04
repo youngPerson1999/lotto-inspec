@@ -13,7 +13,7 @@ from sqlalchemy import delete, select
 
 from app.core.config import get_settings
 from app.core.db import session_scope
-from app.core.models import RefreshTokenORM, UserORM
+from app.models.tables import RefreshTokenORM, UserORM
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = HTTPBearer(auto_error=False)

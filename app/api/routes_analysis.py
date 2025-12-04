@@ -14,7 +14,7 @@ from analysis import (
     sum_runs_summary,
     summarize_draws,
 )
-from app.schemas import (
+from app.models.dto import (
     DependencyAnalysisResponse,
     DependencyAnalysisSnapshotResponse,
     DistributionAnalysisResponse,

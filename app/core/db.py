@@ -47,7 +47,7 @@ def _initialize_engine() -> None:
     )
 
     # Import models lazily so their metadata is registered before create_all.
-    from app.core import models  # noqa: F401
+    from app import models as _models  # noqa: F401  # ensure metadata registration
 
     Base.metadata.create_all(bind=engine)
 
@@ -87,7 +87,7 @@ def ping_database() -> tuple[bool, int | None]:
     """Run a lightweight health check against MariaDB."""
 
     _initialize_engine()
-    from app.core.models import LottoDrawORM
+    from app.models.tables import LottoDrawORM
 
     with session_scope() as session:
         session.execute(text("SELECT 1"))

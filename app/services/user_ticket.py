@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.db import session_scope
-from app.core.models import UserTicketORM
+from app.models.tables import UserTicketORM
 from app.services.lotto import (
     evaluate_ticket,
     fetch_draw_info,

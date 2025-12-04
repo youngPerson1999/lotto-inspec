@@ -6,7 +6,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.schemas import (
+from app.models.dto import (
     RecommendationStrategy,
     UserRecommendationResponse,
 )
