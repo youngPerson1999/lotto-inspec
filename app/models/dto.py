@@ -417,3 +417,11 @@ class TokenPairResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str = Field(..., description="처리 결과 메시지")
+
+
+class EmailVerificationRequest(BaseModel):
+    token: str = Field(..., description="이메일로 전달된 검증 토큰")
+
+
+class ResendVerificationRequest(BaseModel):
+    userId: str = Field(..., description="이메일(로그인 ID)")

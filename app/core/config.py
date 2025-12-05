@@ -13,6 +13,11 @@ from app.core.env_loader import load_env_file
 load_env_file()
 
 
+def _env_bool(key: str, default: str = "false") -> bool:
+    value = os.getenv(key, default)
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     """Runtime configuration resolved from environment variables."""
@@ -76,6 +81,17 @@ class Settings:
     )
     analysis_randomness_serial_block: int = int(
         os.getenv("LOTTO_ANALYSIS_RANDOMNESS_SERIAL_BLOCK", "2")
+    )
+    email_host: str = os.getenv("EMAIL_HOST", "")
+    email_port: int = int(os.getenv("EMAIL_PORT", "587"))
+    email_user: str = os.getenv("EMAIL_USER", "")
+    email_password: str = os.getenv("EMAIL_PASSWORD", "")
+    email_from: str = os.getenv("EMAIL_FROM", "")
+    email_use_tls: bool = _env_bool("EMAIL_USE_TLS", "true")
+    email_timeout: int = int(os.getenv("EMAIL_TIMEOUT", "30"))
+    frontend_host: str = os.getenv("FRONTEND_HOST", "http://localhost:3000")
+    email_verification_exp_minutes: int = int(
+        os.getenv("EMAIL_VERIFICATION_EXP_MINUTES", "60")
     )
     @property
     def draw_storage_path(self) -> Path:

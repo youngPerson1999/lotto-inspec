@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import secrets
 from typing import Any, Dict, Optional
 
 import jwt
@@ -13,7 +14,16 @@ from sqlalchemy import delete, select
 
 from app.core.config import get_settings
 from app.core.db import session_scope
-from app.models.tables import RefreshTokenORM, UserORM
+from app.models.tables import (
+    EmailVerificationTokenORM,
+    RefreshTokenORM,
+    UserORM,
+)
+
+
+class EmailVerificationError(ValueError):
+    """Raised when email verification fails."""
+
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = HTTPBearer(auto_error=False)
@@ -29,6 +39,7 @@ def _user_to_dict(record: UserORM) -> Dict[str, Any]:
         "id": record.id,
         "user_id": record.user_id,
         "password_hash": record.password_hash,
+        "is_verified": bool(record.is_verified),
         "name": record.name,
         "created_at": record.created_at,
     }
@@ -131,6 +142,7 @@ def create_user(user_id: str, password: str, name: str) -> Dict[str, Any]:
         record = UserORM(
             user_id=user_id,
             password_hash=hash_password(password),
+            is_verified=False,
             name=name,
             created_at=datetime.now(timezone.utc),
         )
@@ -151,6 +163,12 @@ def authenticate_user(user_id: str, password: str) -> Dict[str, Any]:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="사용자 ID 또는 비밀번호가 올바르지 않습니다.",
+        )
+
+    if not record.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="이메일이 아직 인증되지 않았습니다. 이메일 인증 후 로그인해주세요.",
         )
     return _user_to_dict(record)
 
@@ -208,6 +226,11 @@ def revoke_all_refresh_tokens(user_id: str) -> None:
 
 
 def issue_tokens_for_user(user: Dict[str, Any]) -> Dict[str, Any]:
+    if not user.get("is_verified"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="이메일이 아직 인증되지 않았습니다. 이메일 인증 후 로그인해주세요.",
+        )
     access_token = create_access_token(user["user_id"])
     refresh = create_refresh_token(user["user_id"])
     store_refresh_token(user["user_id"], refresh["token"], refresh["expires_at"])
@@ -242,6 +265,97 @@ def get_current_user(credentials: HTTPAuthorizationCredentials | None) -> Dict[s
             detail="사용자를 찾을 수 없습니다.",
         )
     return _user_to_dict(record)
+
+
+def _upsert_email_token(
+    session,
+    user_pk: int,
+    token: str,
+    expires_at: datetime,
+) -> None:
+    session.execute(
+        delete(EmailVerificationTokenORM).where(
+            EmailVerificationTokenORM.user_id == user_pk,
+            EmailVerificationTokenORM.used.is_(False),
+        )
+    )
+    session.add(
+        EmailVerificationTokenORM(
+            user_id=user_pk,
+            token=token,
+            expires_at=expires_at,
+            used=False,
+        )
+    )
+
+
+def create_email_verification_token(user_pk: int) -> str:
+    """Create and persist a one-time verification token."""
+
+    _ensure_database_backend()
+    settings = get_settings()
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.email_verification_exp_minutes
+    )
+    with session_scope() as session:
+        _upsert_email_token(session, user_pk, token, expires_at)
+    return token
+
+
+def verify_email_token(token: str) -> Dict[str, Any]:
+    """Mark a user as verified when a valid token is presented."""
+
+    _ensure_database_backend()
+    now = datetime.now(timezone.utc)
+    with session_scope() as session:
+        record = session.scalars(
+            select(EmailVerificationTokenORM).where(
+                EmailVerificationTokenORM.token == token
+            )
+        ).first()
+
+        if not record:
+            raise EmailVerificationError("유효하지 않은 토큰입니다.")
+        if record.used:
+            raise EmailVerificationError("이미 사용된 토큰입니다.")
+        expires_at = record.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < now:
+            raise EmailVerificationError("만료된 토큰입니다.")
+
+        user = session.get(UserORM, record.user_id)
+        if not user:
+            raise EmailVerificationError("사용자를 찾을 수 없습니다.")
+
+        user.is_verified = True
+        record.used = True
+        session.flush()
+        document = _user_to_dict(user)
+    return document
+
+
+def resend_verification_token(user_id: str) -> tuple[bool, bool, str | None]:
+    """Recreate a verification token for the given user_id."""
+
+    _ensure_database_backend()
+    settings = get_settings()
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.email_verification_exp_minutes
+    )
+    with session_scope() as session:
+        user = session.scalars(
+            select(UserORM).where(UserORM.user_id == user_id)
+        ).first()
+        if not user:
+            return False, False, None
+        if user.is_verified:
+            return True, True, None
+
+        token = secrets.token_urlsafe(32)
+        _upsert_email_token(session, user.id, token, expires_at)
+        return True, False, token
 
 
 def require_access_token(
@@ -298,4 +412,8 @@ __all__ = [
     "user_profile",
     "oauth2_scheme",
     "require_access_token",
+    "create_email_verification_token",
+    "verify_email_token",
+    "resend_verification_token",
+    "EmailVerificationError",
 ]

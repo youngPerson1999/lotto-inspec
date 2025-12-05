@@ -26,9 +26,9 @@ The repo now ships with a production-ready layout for Docker/Koyeb deployments.
 
 4. The server automatically schedules background jobs: draw synchronization every Saturday at 21:00 (Asia/Seoul) and analysis snapshot refreshes every Sunday 00:00. Adjust the schedule via `LOTTO_SCHEDULER_*` / `LOTTO_ANALYSIS_SCHEDULER_*` env vars if needed.
 
-5. Open http://localhost:8000/docs to use the interactive Swagger UI. GET 분석 엔드포인트는 MariaDB에 저장된 최신 스냅샷만 조회하며, POST 요청을 보내야 새 분석을 실행하고 저장합니다.  
-   - `GET /lotto/latest` fetches the newest Lotto draw (currently up to the 1197th draw on Nov 15, 2025) and returns the winning numbers plus bonus ball.  
-   - `GET /lotto/{draw_no}` fetches a specific 회차 (e.g., `GET /lotto/1197`).  
+5. Open http://localhost:8000/docs to use the interactive Swagger UI. GET 분석 엔드포인트는 MariaDB에 저장된 최신 스냅샷만 조회하며, POST 요청을 보내야 새 분석을 실행하고 저장합니다.
+   - `GET /lotto/latest` fetches the newest Lotto draw (currently up to the 1197th draw on Nov 15, 2025) and returns the winning numbers plus bonus ball.
+   - `GET /lotto/{draw_no}` fetches a specific 회차 (e.g., `GET /lotto/1197`).
    - `POST /lotto/sync` downloads any missing draws (e.g., 1001~1197) and appends them to `data/lotto_draws.json`, returning a summary of what was added.
    - `GET /analysis` summarizes locally stored draws (chi-square, runs test, frequency tables, gap histogram). Use `/lotto/sync` first to hydrate storage.
    - `GET /analysis/dependency` runs 시계열 자기상관 + 직전 회차 재등장 확률 비교로 회차 간 의존성이 있는지 검정합니다.
@@ -37,7 +37,7 @@ The repo now ships with a production-ready layout for Docker/Koyeb deployments.
    - `POST /analysis/distribution` compares 합계/간격 분포 전체가 시뮬레이션한 이상적 분포와 얼마나 차이나는지를 χ² + KS 통계로 보여줍니다 (계산 비용 때문에 POST 전용).
    - `GET /analysis/randomness` runs a lightweight NIST-style randomness suite on 비트열 인코딩(번호 존재 여부/이진 표현 등) 후 각 검정의 p-value를 제공합니다. (POST로 재계산 가능)
    - `GET /recommendations?strategy=frequency_hot` 등으로 랜덤/분석 기반 추천 조합을 받을 수 있습니다 (`random`, `frequency_hot`, `frequency_cold`, `balanced_parity` 지원).
-   - `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`로 JWT 기반 로그인/토큰 갱신을 사용할 수 있습니다. (MariaDB 필수)
+   - `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`에 더해 `/auth/verify-email`, `/auth/resend-verification`으로 이메일 인증 플로우를 완성했습니다. (MariaDB 필수)
 
 ## Running with Docker
 
@@ -69,36 +69,45 @@ Set `LOTTO_DATA_DIR` (inside `.env`) to a mounted volume if you need the synchro
 
 ## Configuration
 
-| Variable                | Default                 | Description                                                                                |
-| ----------------------- | ----------------------- | ------------------------------------------------------------------------------------------ |
-| `LOTTO_DATA_DIR`        | `data`                  | Directory where synced draws are stored.                                                   |
-| `LOTTO_RESULT_URL`      | DhLottery `byWin` page  | Override target HTML page for scraping the latest draw number.                             |
-| `LOTTO_JSON_URL`        | DhLottery JSON endpoint | Override API base for individual draw metadata.                                            |
-| `LOTTO_USER_AGENT`      | `lotto-insec/1.0 (...)` | Custom User-Agent header for outbound requests.                                            |
-| `LOTTO_REQUEST_TIMEOUT` | `10` seconds            | Default HTTP timeout used by the crawler.                                                  |
-| `LOTTO_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated list of Origins allowed via CORS.                                          |
-| `LOTTO_STORAGE_BACKEND` | `file`                  | Set to `mariadb` to persist draws in MariaDB instead of `data/lotto_draws.json`.           |
-| `MARIADB_HOST`          | `127.0.0.1`             | MariaDB hostname (set to `localhost` when running locally).                                |
-| `MARIADB_PORT`          | `3306`                  | MariaDB port.                                                                              |
-| `MARIADB_USER`          | `lotto`                 | MariaDB user with privileges on the target database.                                       |
-| `MARIADB_PASSWORD`      | _(unset)_               | Password for `MARIADB_USER`.                                                               |
-| `MARIADB_DB_NAME`       | `lotto_insec`           | MariaDB database used for draws, analysis snapshots, auth, and recommendations.            |
-| `JWT_SECRET_KEY` | `change-me` | JWT 서명 비밀 키 (프로덕션에서는 안전한 값으로 변경). |
-| `JWT_ALGORITHM` | `HS256` | JWT 서명 알고리즘. |
-| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access Token 만료 시간(분). |
-| `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | `14` | Refresh Token 만료 시간(일). |
-| `PORT`                  | `8000`                  | Honored by the Dockerfile/Procfile for platforms that inject a port (Koyeb, Render, etc.). |
-| `LOTTO_SCHEDULER_TZ`    | `Asia/Seoul`            | Timezone used by the weekly lotto sync scheduler.                                          |
-| `LOTTO_SCHEDULER_DOW`   | `sat`                   | Day-of-week specifier (`apscheduler` cron syntax) for the sync job.                        |
-| `LOTTO_SCHEDULER_HOUR`  | `21`                    | Hour (24h) when the sync job runs.                                                         |
-| `LOTTO_SCHEDULER_MINUTE`| `0`                     | Minute when the sync job runs.                                                             |
-| `LOTTO_ANALYSIS_SCHEDULER_TZ` | `Asia/Seoul`     | Timezone for the weekly analysis refresh (defaults to the draw scheduler TZ).              |
-| `LOTTO_ANALYSIS_SCHEDULER_DOW`| `sun`            | Day-of-week for the automated analysis refresh.                                            |
-| `LOTTO_ANALYSIS_SCHEDULER_HOUR`| `0`             | Hour (24h) for the automated analysis refresh.                                             |
-| `LOTTO_ANALYSIS_SCHEDULER_MINUTE`| `0`           | Minute for the automated analysis refresh.                                                 |
-| `LOTTO_ANALYSIS_RANDOMNESS_ENCODING`| `presence` | Encoding used by the scheduled randomness suite run.                                       |
-| `LOTTO_ANALYSIS_RANDOMNESS_BLOCK_SIZE`| `128`    | Block size for the scheduled randomness suite.                                             |
-| `LOTTO_ANALYSIS_RANDOMNESS_SERIAL_BLOCK`| `2`     | Serial test block length for the scheduled randomness suite.                               |
+| Variable                                 | Default                 | Description                                                                                |
+| ---------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------ |
+| `LOTTO_DATA_DIR`                         | `data`                  | Directory where synced draws are stored.                                                   |
+| `LOTTO_RESULT_URL`                       | DhLottery `byWin` page  | Override target HTML page for scraping the latest draw number.                             |
+| `LOTTO_JSON_URL`                         | DhLottery JSON endpoint | Override API base for individual draw metadata.                                            |
+| `LOTTO_USER_AGENT`                       | `lotto-insec/1.0 (...)` | Custom User-Agent header for outbound requests.                                            |
+| `LOTTO_REQUEST_TIMEOUT`                  | `10` seconds            | Default HTTP timeout used by the crawler.                                                  |
+| `LOTTO_ALLOWED_ORIGINS`                  | `http://localhost:3000` | Comma-separated list of Origins allowed via CORS.                                          |
+| `LOTTO_STORAGE_BACKEND`                  | `file`                  | Set to `mariadb` to persist draws in MariaDB instead of `data/lotto_draws.json`.           |
+| `MARIADB_HOST`                           | `127.0.0.1`             | MariaDB hostname (set to `localhost` when running locally).                                |
+| `MARIADB_PORT`                           | `3306`                  | MariaDB port.                                                                              |
+| `MARIADB_USER`                           | `lotto`                 | MariaDB user with privileges on the target database.                                       |
+| `MARIADB_PASSWORD`                       | _(unset)_               | Password for `MARIADB_USER`.                                                               |
+| `MARIADB_DB_NAME`                        | `lotto_insec`           | MariaDB database used for draws, analysis snapshots, auth, and recommendations.            |
+| `JWT_SECRET_KEY`                         | `change-me`             | JWT 서명 비밀 키 (프로덕션에서는 안전한 값으로 변경).                                      |
+| `JWT_ALGORITHM`                          | `HS256`                 | JWT 서명 알고리즘.                                                                         |
+| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`        | `60`                    | Access Token 만료 시간(분).                                                                |
+| `JWT_REFRESH_TOKEN_EXPIRE_DAYS`          | `14`                    | Refresh Token 만료 시간(일).                                                               |
+| `PORT`                                   | `8000`                  | Honored by the Dockerfile/Procfile for platforms that inject a port (Koyeb, Render, etc.). |
+| `LOTTO_SCHEDULER_TZ`                     | `Asia/Seoul`            | Timezone used by the weekly lotto sync scheduler.                                          |
+| `LOTTO_SCHEDULER_DOW`                    | `sat`                   | Day-of-week specifier (`apscheduler` cron syntax) for the sync job.                        |
+| `LOTTO_SCHEDULER_HOUR`                   | `21`                    | Hour (24h) when the sync job runs.                                                         |
+| `LOTTO_SCHEDULER_MINUTE`                 | `0`                     | Minute when the sync job runs.                                                             |
+| `LOTTO_ANALYSIS_SCHEDULER_TZ`            | `Asia/Seoul`            | Timezone for the weekly analysis refresh (defaults to the draw scheduler TZ).              |
+| `LOTTO_ANALYSIS_SCHEDULER_DOW`           | `sun`                   | Day-of-week for the automated analysis refresh.                                            |
+| `LOTTO_ANALYSIS_SCHEDULER_HOUR`          | `0`                     | Hour (24h) for the automated analysis refresh.                                             |
+| `LOTTO_ANALYSIS_SCHEDULER_MINUTE`        | `0`                     | Minute for the automated analysis refresh.                                                 |
+| `LOTTO_ANALYSIS_RANDOMNESS_ENCODING`     | `presence`              | Encoding used by the scheduled randomness suite run.                                       |
+| `LOTTO_ANALYSIS_RANDOMNESS_BLOCK_SIZE`   | `128`                   | Block size for the scheduled randomness suite.                                             |
+| `LOTTO_ANALYSIS_RANDOMNESS_SERIAL_BLOCK` | `2`                     | Serial test block length for the scheduled randomness suite.                               |
+| `EMAIL_HOST`                             | _(unset)_               | SMTP host used for transactional emails.                                                   |
+| `EMAIL_PORT`                             | `587`                   | SMTP port.                                                                                 |
+| `EMAIL_USER`                             | _(unset)_               | SMTP username.                                                                             |
+| `EMAIL_PASSWORD`                         | _(unset)_               | SMTP password.                                                                             |
+| `EMAIL_FROM`                             | _(unset)_               | Sender email shown in verification messages.                                               |
+| `EMAIL_USE_TLS`                          | `true`                  | Whether to issue `STARTTLS` before sending mail.                                           |
+| `EMAIL_TIMEOUT`                          | `30` seconds            | SMTP connection timeout.                                                                   |
+| `FRONTEND_HOST`                          | `http://localhost:3000` | Base URL used when generating verification links.                                          |
+| `EMAIL_VERIFICATION_EXP_MINUTES`         | `60`                    | Lifetime (minutes) of issued email verification tokens.                                    |
 
 ### Using MariaDB for draw storage
 
@@ -132,6 +141,41 @@ Set `LOTTO_DATA_DIR` (inside `.env`) to a mounted volume if you need the synchro
    ```
 
 With the MariaDB backend enabled, `/lotto/sync` upserts draws into SQL tables while `/analysis`, `/auth`, `/recommendations`, and `/lotto/tickets` query the same database.
+
+### Email Verification Setup
+
+1. Make sure the SMTP-related environment variables above are configured along with `FRONTEND_HOST` so verification links point to the correct UI.
+2. Existing databases need one-time schema changes (the SQL runner handles them for fresh installs). Apply manually if required:
+
+   ```sql
+   ALTER TABLE users
+       ADD COLUMN IF NOT EXISTS is_verified TINYINT(1) NOT NULL DEFAULT 0
+           AFTER password_hash;
+
+   CREATE TABLE IF NOT EXISTS email_verification_tokens (
+       id INT NOT NULL AUTO_INCREMENT,
+       user_id INT NOT NULL,
+       token VARCHAR(255) NOT NULL,
+       expires_at DATETIME NOT NULL,
+       used TINYINT(1) NOT NULL DEFAULT 0,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       PRIMARY KEY (id),
+       UNIQUE KEY uq_email_verification_tokens_token (token),
+       KEY idx_email_verification_tokens_user_id (user_id),
+       CONSTRAINT fk_email_verification_tokens_user
+           FOREIGN KEY (user_id) REFERENCES users(id)
+           ON DELETE CASCADE
+   ) ENGINE=InnoDB
+     DEFAULT CHARSET=utf8mb4
+     COLLATE=utf8mb4_unicode_ci;
+
+   UPDATE users u
+   LEFT JOIN email_verification_tokens t ON t.user_id = u.id
+   SET u.is_verified = 1
+   WHERE u.is_verified = 0 AND t.id IS NULL;
+   ```
+
+3. New sign-ups now receive a verification email automatically; `/auth/verify-email` marks them as verified, and `/auth/resend-verification` lets them request a fresh token.
 
 ## Project Layout
 

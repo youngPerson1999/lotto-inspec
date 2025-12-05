@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -55,6 +56,7 @@ class UserORM(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(String(64), nullable=False, unique=True, index=True)
     password_hash = Column(String(255), nullable=False)
+    is_verified = Column(Boolean, nullable=False, default=False)
     name = Column(String(128), nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
@@ -156,8 +158,27 @@ class UserRecommendationORM(Base):
     )
 
 
+class EmailVerificationTokenORM(Base):
+    """Email verification tokens issued per user."""
+
+    __tablename__ = "email_verification_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token = Column(String(255), nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
 __all__ = [
     "AnalysisSnapshotORM",
+    "EmailVerificationTokenORM",
     "LottoDrawORM",
     "RecommendationSnapshotORM",
     "RefreshTokenORM",
