@@ -335,8 +335,8 @@ class RecommendationResponse(BaseModel):
     strategy: str = Field(..., description="사용된 추천 전략 키")
     numbers: List[int] = Field(
         ...,
-        description="추천된 번호 6개",
-        min_length=6,
+        description="추천된 번호 3-6개",
+        min_length=3,
         max_length=6,
     )
     explanation: str = Field(..., description="추천 근거 또는 설명")

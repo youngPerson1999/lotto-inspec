@@ -15,6 +15,7 @@ from app.services.auth import require_access_token
 from app.services.recommendation import (
     RecommendationError,
     create_user_recommendation,
+    get_dashboard_recommendations,
     get_recommendation,
     get_all_recommendations,
 )
@@ -22,7 +23,6 @@ from app.services.recommendation import (
 router = APIRouter(
     prefix="/recommendations",
     tags=["recommendations"],
-    dependencies=[Depends(require_access_token)],
 )
 
 
@@ -30,6 +30,7 @@ router = APIRouter(
     "",
     response_model=RecommendationResponse,
     summary="번호 추천 결과 조회",
+    dependencies=[Depends(require_access_token)],
 )
 def getRecommendations(
     strategy: RecommendationStrategy = Query(
@@ -48,6 +49,7 @@ def getRecommendations(
     "",
     response_model=UserRecommendationResponse,
     summary="사용자 맞춤 추천 저장",
+    dependencies=[Depends(require_access_token)],
 )
 def postRecommendation(
     payload: UserRecommendationRequest,
@@ -71,10 +73,26 @@ def postRecommendation(
     "/all",
     response_model=RecommendationBatchResponse,
     summary="모든 전략에 대한 추천 결과",
+    dependencies=[Depends(require_access_token)],
 )
 def getAllRecommendations() -> RecommendationBatchResponse:
     try:
         payload = get_all_recommendations()
+    except RecommendationError as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
+    return RecommendationBatchResponse(
+        recommendations=[RecommendationResponse(**item) for item in payload]
+    )
+
+
+@router.get(
+    "/dashboard",
+    response_model=RecommendationBatchResponse,
+    summary="대시보드용 추천 결과 (상위 3개)",
+)
+def getDashboardRecommendations() -> RecommendationBatchResponse:
+    try:
+        payload = get_dashboard_recommendations()
     except RecommendationError as exc:
         raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
     return RecommendationBatchResponse(

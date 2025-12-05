@@ -277,6 +277,19 @@ def get_all_recommendations() -> List[Dict[str, object]]:
     return results
 
 
+def get_dashboard_recommendations() -> List[Dict[str, object]]:
+    """Return recommendations with truncated numbers for dashboard users."""
+
+    results = get_all_recommendations()
+    sanitized: List[Dict[str, object]] = []
+    for result in results:
+        entry = dict(result)
+        numbers = entry.get("numbers") or []
+        entry["numbers"] = list(numbers[:3])
+        sanitized.append(entry)
+    return sanitized
+
+
 def create_user_recommendation(user_id: str, strategy: str) -> Dict[str, object]:
     if not user_id:
         raise RecommendationError("userId가 비어 있습니다.")
@@ -429,6 +442,7 @@ def evaluate_user_recommendation(
 __all__ = [
     "get_recommendation",
     "get_all_recommendations",
+    "get_dashboard_recommendations",
     "RecommendationError",
     "STRATEGIES",
     "create_user_recommendation",
